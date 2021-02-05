@@ -3,8 +3,11 @@
 	"version": "6.3.0",
 	"description": "Get metadata about the active window (title, id, bounds, owner, URL, etc). Works on macOS, Linux, Windows.",
 	"license": "MIT",
-	"repository": "rize-io/active-win",
-	"funding": "https://github.com/sponsors/sindresorhus",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rize-io/active-win.git"
+	},
+	"funding": "https://github.com/s3434ponsors/sindresorhus",
 	"author": {
 		"name": "Sindre Sorhus",
 		"email": "sindresorhus@gmail.com",
