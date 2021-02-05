@@ -1,67 +1,80 @@
 {
-	"name": "active-win",
-	"version": "6.3.0",
-	"description": "Get metadata about the active window (title, id, bounds, owner, URL, etc). Works on macOS, Linux, Windows.",
-	"license": "MIT",
-	"repository": "rize-io/active-win",
-	"funding": "https://github.com/sponsors/sindresorhus",
-	"author": {
-		"name": "Sindre Sorhus",
-		"email": "sindresorhus@gmail.com",
-		"url": "https://sindresorhus.com"
-	},
-	"engines": {
-		"node": ">=8"
-	},
-	"scripts": {
-		"test": "xo && ava && tsd",
-		"build": "swift build --configuration=release && mv .build/release/active-win main",
-		"prepublishOnly": "npm run build"
-	},
-	"files": [
-		"index.js",
-		"index.d.ts",
-		"lib",
-		"main"
-	],
-	"keywords": [
-		"macos",
-		"linux",
-		"windows",
-		"app",
-		"application",
-		"window",
-		"win",
-		"active",
-		"focused",
-		"current",
-		"title",
-		"name",
-		"id",
-		"pid",
-		"screenshot",
-		"capture",
-		"metadata",
-		"bounds",
-		"memory",
-		"usage",
-		"bundleid",
-		"browser",
-		"url",
-		"chrome",
-		"safari",
-		"edge",
-		"brave"
-	],
-	"devDependencies": {
-		"ava": "^2.4.0",
-		"tsd": "^0.10.0",
-		"xo": "^0.25.3"
-	},
-	"optionalDependencies": {
-		"ffi-napi": "^2.4.5",
-		"ref-napi": "^3.0.0",
-		"ref-wchar-napi": "^1.0.2",
-		"ref-struct-napi": "^1.1.0"
-	}
+  "name": "@rize-io/active-win",
+  "version": "6.3.0",
+  "description": "Get metadata about the active window (title, id, bounds, owner, URL, etc). Works on macOS, Linux, Windows.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rize-io/active-win.git"
+  },
+  "funding": "https://github.com/sponsors/sindresorhus",
+  "author": "Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)",
+  "engines": {
+    "node": ">=8"
+  },
+  "scripts": {
+    "test": "xo && ava && tsd",
+    "build": "swift build --configuration=release && mv .build/release/active-win main",
+    "prepublishOnly": "npm run build"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "lib",
+    "main"
+  ],
+  "keywords": [
+    "macos",
+    "linux",
+    "windows",
+    "app",
+    "application",
+    "window",
+    "win",
+    "active",
+    "focused",
+    "current",
+    "title",
+    "name",
+    "id",
+    "pid",
+    "screenshot",
+    "capture",
+    "metadata",
+    "bounds",
+    "memory",
+    "usage",
+    "bundleid",
+    "browser",
+    "url",
+    "chrome",
+    "safari",
+    "edge",
+    "brave"
+  ],
+  "devDependencies": {
+    "ava": "^2.4.0",
+    "tsd": "^0.10.0",
+    "xo": "^0.25.3"
+  },
+  "optionalDependencies": {
+    "ffi-napi": "^2.4.5",
+    "ref-napi": "^3.0.0",
+    "ref-wchar-napi": "^1.0.2",
+    "ref-struct-napi": "^1.1.0"
+  },
+  "bugs": {
+    "url": "https://github.com/rize-io/active-win/issues"
+  },
+  "homepage": "https://github.com/rize-io/active-win#readme",
+  "dependencies": {
+    "ffi-napi": "^2.4.5",
+    "ref-napi": "^3.0.0",
+    "ref-wchar-napi": "^1.0.2",
+    "ref-struct-napi": "^1.1.0"
+  },
+  "main": "index.js",
+  "directories": {
+    "lib": "lib"
+  }
 }
