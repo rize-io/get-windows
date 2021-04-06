@@ -11,6 +11,17 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appName: String) -> String? {
 	}
 }
 
+func getActiveBrowserModeAppleScriptCommand(_ appName: String) -> String? {
+	switch appName {
+	case "Google Chrome", "Brave Browser", "Brave Browser Beta", "Sidekick", "Opera", "Microsoft Edge":
+		return "tell app \"\(appName)\" to get mode of front window"
+	case "Safari":
+		// Need to figure out how to do this for Safari
+	default:
+		return nil
+	}
+}
+
 // Show accessibility permission prompt if needed. Required to get the complete window title.
 if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) {
 	print("active-win requires the accessibility permission in “System Preferences › Security & Privacy › Privacy › Accessibility”.")
@@ -73,8 +84,15 @@ for window in windows {
 
 	// Only run the AppleScript if active window is a compatible browser.
 	if
-		let script = getActiveBrowserTabURLAppleScriptCommand(appName),
-		let url = runAppleScript(source: script)
+		let modeScript = getActiveBrowserModeAppleScriptCommand(appName),
+		let mode = runAppleScript(source: modeScript)
+	{
+		dict["mode"] = mode
+	}
+
+	if
+		let urlScript = getActiveBrowserTabURLAppleScriptCommand(appName),
+		let url = runAppleScript(source: urlScript)
 	{
 		dict["url"] = url
 	}
