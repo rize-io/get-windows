@@ -2,7 +2,7 @@ import AppKit
 
 func getActiveBrowserTabURLAppleScriptCommand(_ appName: String) -> String? {
 	switch appName {
-	case "Google Chrome", "Brave Browser", "Microsoft Edge":
+	case "Google Chrome", "Brave Browser", "Brave Browser Beta", "Sidekick", "Opera", "Microsoft Edge":
 		return "tell app \"\(appName)\" to get the URL of active tab of front window"
 	case "Safari":
 		return "tell app \"Safari\" to get URL of front document"
@@ -22,6 +22,8 @@ func getActiveBrowserModeAppleScriptCommand(_ appName: String) -> String? {
 	}
 }
 
+let disableScreenRecordingPermission = CommandLine.arguments.contains("--disable-screen-recording-permission")
+
 // Show accessibility permission prompt if needed. Required to get the complete window title.
 if !AXIsProcessTrustedWithOptions(["AXTrustedCheckOptionPrompt": true] as CFDictionary) {
 	print("active-win requires the accessibility permission in “System Preferences › Security & Privacy › Privacy › Accessibility”.")
@@ -32,7 +34,7 @@ let frontmostAppPID = NSWorkspace.shared.frontmostApplication!.processIdentifier
 let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as! [[String: Any]]
 
 // Show screen recording permission prompt if needed. Required to get the complete window title.
-if !hasScreenRecordingPermission() {
+if !disableScreenRecordingPermission && !hasScreenRecordingPermission() {
 	print("active-win requires the screen recording permission in “System Preferences › Security & Privacy › Privacy › Screen Recording”.")
 	exit(1)
 }
@@ -61,11 +63,13 @@ for window in windows {
 
 	// This can't fail as we're only dealing with apps.
 	let app = NSRunningApplication(processIdentifier: appPid)!
-	
+
 	let appName = window[kCGWindowOwnerName as String] as! String
 
+	let windowTitle = disableScreenRecordingPermission ? "" : window[kCGWindowName as String] as? String ?? ""
+
 	var dict: [String: Any] = [
-		"title": window[kCGWindowName as String] as? String ?? "",
+		"title": windowTitle,
 		"id": window[kCGWindowNumber as String] as! Int,
 		"bounds": [
 			"x": bounds.origin.x,
