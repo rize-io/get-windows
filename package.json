@@ -1,9 +1,12 @@
 {
 	"name": "@rize-io/active-win",
-	"version": "7.7.4-beta.14",
-	"description": "Get metadata about the active window (title, id, bounds, owner, URL, etc). Works on macOS, Linux, Windows.",
+	"version": "8.1.0",
+	"description": "Get metadata about the active window (title, id, bounds, owner, URL, etc)",
 	"license": "MIT",
-	"repository": "rize-io/active-win",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/rize-io/active-win.git"
+	},
 	"funding": "https://github.com/sponsors/sindresorhus",
 	"author": {
 		"name": "Sindre Sorhus",
@@ -11,19 +14,37 @@
 		"url": "https://sindresorhus.com"
 	},
 	"engines": {
-		"node": ">=10"
+		"node": ">=14"
+	},
+	"main": "./index",
+	"types": "./index.d.ts",
+	"binary": {
+		"module_name": "node-active-win",
+		"module_path": "./lib/binding/napi-{napi_build_version}-{platform}-{libc}-{arch}",
+		"host": "https://github.com/sindresorhus/active-win/releases/download/",
+		"remote_path": "v{version}",
+		"package_name": "napi-{napi_build_version}-{platform}-{libc}-{arch}.tar.gz",
+		"napi_versions": [
+			3,
+			6
+		]
 	},
 	"scripts": {
-		"test": "xo && npm run build && ava && tsd",
+		"test": "xo && npm run build:macos && ava && tsd",
 		"test-ci": "xo && tsd",
-		"build": "swift build --configuration=release --arch arm64 --arch x86_64 && mv .build/apple/Products/Release/active-win main",
-		"prepare": "npm run build"
+		"build:windows:install": "node-pre-gyp install --fallback-to-build",
+		"build:windows": "node-pre-gyp build",
+		"build:windows:debug": "node-pre-gyp build --debug",
+		"build:macos": "swift build --configuration=release --arch arm64 --arch x86_64 && mv .build/apple/Products/Release/active-win main",
+		"install": "node-pre-gyp install --fallback-to-build"
 	},
 	"files": [
 		"index.js",
 		"index.d.ts",
 		"lib",
-		"main"
+		"main",
+		"Sources/windows/main.cc",
+		"binding.gyp"
 	],
 	"keywords": [
 		"macos",
@@ -57,13 +78,21 @@
 	"devDependencies": {
 		"ava": "^2.4.0",
 		"tsd": "^0.14.0",
-		"xo": "^0.38.2"
+		"xo": "^0.38.2",
+		"node-pre-gyp-github": "^1.4.4"
 	},
 	"optionalDependencies": {
-		"@lwahonen/ffi-napi": "^4.0.12",
-		"@lwahonen/ref-napi": "^4.0.8",
-		"ref-struct-di": "^1.1.1",
-		"ref-wchar-napi": "^1.0.3"
+		"@mapbox/node-pre-gyp": "^1.0.10",
+		"node-addon-api": "^5.0.0",
+		"node-gyp": "^9.3.0"
+	},
+	"peerDependencies": {
+		"node-gyp": "^9.3.0"
+	},
+	"peerDependenciesMeta": {
+		"node-gyp": {
+			"optional": true
+		}
 	},
 	"ava": {
 		"verbose": true
