@@ -142,6 +142,36 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
+// Print information about an UI Automation Element
+void printElementInfo(IUIAutomationElement* element) {
+	CComBSTR bstrName;
+	CONTROLTYPEID controlId;
+	CComBSTR bstrLocalizedControlType;
+	CComBSTR bstrAutomationId;
+
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+		std::cout << "Element Name: " << strName << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentControlType(&controlId))) {
+		std::cout << "Element ControlType: " << controlId << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentLocalizedControlType(&bstrLocalizedControlType)) && bstrLocalizedControlType) {
+		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
+		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
+		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentAutomationId(&bstrAutomationId)) && bstrAutomationId) {
+		std::wstring wstrAutomationId(bstrAutomationId, SysStringLen(bstrAutomationId));
+		std::string strAutomationId(wstrAutomationId.begin(), wstrAutomationId.end());
+		std::cout << "Element AutomationId: " << strAutomationId << std::endl;
+	}
+}
+
 // Find the address bar in Google Chrome
 HRESULT getChromeAddressBarUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar)
 {
@@ -188,36 +218,6 @@ HRESULT getChromeIncognitoUIAElement(HWND hwnd, IUIAutomationElement** ppIncogni
 	hr = pRootElement->FindFirst(TreeScope_Subtree, pNameCondition, ppIncognito);
 
 	return hr;
-}
-
-// Print information about an UI Automation Element
-void printElementInfo(IUIAutomationElement* element) {
-	CComBSTR bstrName;
-	CONTROLTYPEID controlId;
-	CComBSTR bstrLocalizedControlType;
-	CComBSTR bstrAutomationId;
-
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-		std::cout << "Element Name: " << strName << std::endl;
-	}
-
-	if (SUCCEEDED(element->get_CurrentControlType(&controlId))) {
-		std::cout << "Element ControlType: " << controlId << std::endl;
-	}
-
-	if (SUCCEEDED(element->get_CurrentLocalizedControlType(&bstrLocalizedControlType)) && bstrLocalizedControlType) {
-		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
-		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
-		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
-	}
-
-	if (SUCCEEDED(element->get_CurrentAutomationId(&bstrAutomationId)) && bstrAutomationId) {
-		std::wstring wstrAutomationId(bstrAutomationId, SysStringLen(bstrAutomationId));
-		std::string strAutomationId(wstrAutomationId.begin(), wstrAutomationId.end());
-		std::cout << "Element AutomationId: " << strAutomationId << std::endl;
-	}
 }
 
 // Get the URL from Google Chrome
