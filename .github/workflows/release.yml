@@ -57,13 +57,13 @@ jobs:
             echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
           fi
       - name: Configure build
-        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }} --verbose
 
       - name: Build binaries
-        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }} --verbose
 
       - name: Package prebuilt binaries
-        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }} --verbose
 
       # Run only for matrix.node 18
       - name: Upload binaries to commit artifacts
