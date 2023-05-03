@@ -12,6 +12,7 @@
 #include <uiautomation.h>
 #include <atlbase.h>
 #include <objbase.h>
+#include <chrono>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 
@@ -196,8 +197,14 @@ void printElementInfo(IUIAutomationElement* element) {
 std::string getChromeUrl(HWND hwnd) {
 	std::string url;
 
+	auto start = std::chrono::high_resolution_clock::now();
+
 	CComPtr<IUIAutomationElement> pAddressBar;
 	HRESULT hr = getChromeAddressBarUIAElement(hwnd, &pAddressBar);
+
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+	std::cout << "getChromeAddressBarUIAElement took " << duration << " microseconds." << std::endl;
 
 	if (SUCCEEDED(hr) && pAddressBar)
 	{
