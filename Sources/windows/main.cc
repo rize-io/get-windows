@@ -170,6 +170,26 @@ HRESULT getChromeAddressBarUIAElement(HWND hwnd, IUIAutomationElement** ppAddres
 	return hr;
 }
 
+// Find the incognito button in Google Chrome
+HRESULT getChromeIncognitoUIAElement(HWND hwnd, IUIAutomationElement** ppIncognito)
+{
+	CComPtr<IUIAutomation> pAutomation;
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationElement> pRootElement;
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationCondition> pNameCondition;
+	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Incognito"), &pNameCondition);
+	if (FAILED(hr)) return hr;
+
+	hr = pRootElement->FindFirst(TreeScope_Subtree, pNameCondition, ppIncognito);
+
+	return hr;
+}
+
 // Print information about an UI Automation Element
 void printElementInfo(IUIAutomationElement* element) {
 	CComBSTR bstrName;
@@ -225,6 +245,30 @@ std::string getChromeUrl(HWND hwnd) {
 	}
 
 	return url;
+}
+
+// Get whether or not Google Chrome is in incognito mode
+std::string getChromeMode(HWND hwnd) {
+	std::string mode;
+
+	auto start = std::chrono::high_resolution_clock::now();
+
+	CComPtr<IUIAutomationElement> pIncognito;
+	HRESULT hr = getChromeIncognitoUIAElement(hwnd, &pIncognito);
+
+	auto end = std::chrono::high_resolution_clock::now();
+	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+	std::cout << "getChromeIncognitoUIAElement took " << duration << " microseconds." << std::endl;
+
+	if (SUCCEEDED(hr) && pIncognito)
+	{
+		printElementInfo(pIncognito);
+		mode = "incognito";
+	} else {
+		mode = "normal";
+	}
+
+	return mode;
 }
 
 // Return window information
@@ -305,8 +349,11 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 		if (SUCCEEDED(hr)) {
 			std::string chromeUrl = getChromeUrl(hwnd);
-			printf("chromeUrl: %s", chromeUrl.c_str());
+			std::cout << "chromeUrl:  " << chromeUrl << std::endl;
+			std::string chromeMode = getChromeMode(hwnd);
+			std::cout << "chromeMode:  " << chromeMode << std::endl;
 			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, chromeUrl));
+			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, chromeMode));
 		}
 
 		CoUninitialize();
