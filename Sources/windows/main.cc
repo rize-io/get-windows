@@ -195,6 +195,7 @@ void printElementInfo(IUIAutomationElement* element) {
 	CComBSTR bstrName;
 	CONTROLTYPEID controlId;
 	CComBSTR bstrLocalizedControlType;
+	CComBSTR bstrAutomationId;
 
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -210,6 +211,12 @@ void printElementInfo(IUIAutomationElement* element) {
 		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
 		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
 		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentAutomationId(&bstrAutomationId)) && bstrAutomationId) {
+		std::wstring wstrAutomationId(bstrAutomationId, SysStringLen(bstrAutomationId));
+		std::string strAutomationId(wstrAutomationId.begin(), wstrAutomationId.end());
+		std::cout << "Element AutomationId: " << strAutomationId << std::endl;
 	}
 }
 
