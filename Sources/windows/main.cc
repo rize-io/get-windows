@@ -9,6 +9,9 @@
 #include <version>
 #include <dwmapi.h>
 #include <algorithm>
+#include <uiautomation.h>
+#include <atlbase.h>
+#include <objbase.h>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 
@@ -138,6 +141,85 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
+// Find the address bar in Google Chrome
+HRESULT getChromeAddressBarUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar)
+{
+	CComPtr<IUIAutomation> pAutomation;
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationElement> pRootElement;
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationCondition> pAccessKeyCondition;
+	hr = pAutomation->CreatePropertyCondition(UIA_AccessKeyPropertyId, CComVariant("Ctrl+L"), &pAccessKeyCondition);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationCondition> pNameCondition;
+	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Address and search bar"), &pNameCondition);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationCondition> pOrCondition;
+	hr = pAutomation->CreateAndCondition(pAccessKeyCondition, pNameCondition, &pOrCondition);
+	if (FAILED(hr)) return hr;
+
+	hr = pRootElement->FindFirst(TreeScope_Subtree, pOrCondition, ppAddressBar);
+
+	return hr;
+}
+
+// Print information about an UI Automation Element
+void printElementInfo(IUIAutomationElement* element) {
+	CComBSTR bstrName;
+	CONTROLTYPEID controlId;
+	CComBSTR bstrLocalizedControlType;
+
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+		std::cout << "Element Name: " << strName << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentControlType(&controlId))) {
+		std::cout << "Element ControlType: " << controlId << std::endl;
+	}
+
+	if (SUCCEEDED(element->get_CurrentLocalizedControlType(&bstrLocalizedControlType)) && bstrLocalizedControlType) {
+		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
+		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
+		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
+	}
+}
+
+// Get the URL from Google Chrome
+std::string getChromeUrl(HWND hwnd) {
+	std::string url;
+
+	CComPtr<IUIAutomationElement> pAddressBar;
+	HRESULT hr = getChromeAddressBarUIAElement(hwnd, &pAddressBar);
+
+	if (SUCCEEDED(hr) && pAddressBar)
+	{
+		printElementInfo(pAddressBar);
+		CComPtr<IUIAutomationValuePattern> pValuePattern;
+		hr = pAddressBar->GetCurrentPattern(UIA_ValuePatternId, (IUnknown**)&pValuePattern);
+
+		if (SUCCEEDED(hr) && pValuePattern)
+		{
+			CComBSTR bstrValue;
+			hr = pValuePattern->get_CurrentValue(&bstrValue);
+
+			if (SUCCEEDED(hr) && bstrValue)
+			{
+				url = CW2A(bstrValue, CP_UTF8);
+			}
+		}
+	}
+
+	return url;
+}
+
 // Return window information
 Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &info) {
 	Napi::Env env{info.Env()};
@@ -209,6 +291,19 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	activeWinObj.Set(Napi::String::New(env, "owner"), owner);
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
+
+	// Check if the window is Google Chrome
+	if (ownerInfo.name == "Google Chrome") {
+		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+		if (SUCCEEDED(hr)) {
+			std::string chromeUrl = getChromeUrl(hwnd);
+			printf("chromeUrl: %s", chromeUrl.c_str());
+			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, chromeUrl));
+		}
+
+		CoUninitialize();
+	}
 
 	return activeWinObj;
 }
