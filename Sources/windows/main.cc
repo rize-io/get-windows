@@ -178,7 +178,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		return nullptr;
 	}
 
-	if (controlId == UIA_DocumentControlTypeId || controlId == UIA_MenuBarControlTypeId || controlId == UIA_MenuControlTypeId || controlId == UIA_TabControlTypeId) {
+	if (controlId == UIA_DocumentControlTypeId || controlId == UIA_MenuBarControlTypeId || controlId == UIA_MenuControlTypeId || controlId == UIA_TabControlTypeId || controlId == UIA_CustomControlTypeId) {
 		skipChildren = true;
 	}
 
@@ -272,11 +272,59 @@ ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element)
 	return false;
 };
 
-std::string getChromeUrl(HWND hwnd) {
+ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Search with") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+bool ownerHasName(const OwnerWindowInfo& ownerInfo, const std::string exeName, const std::string appName) {
+	if (!ownerInfo.path.empty()) {
+		std::string path = ownerInfo.path;
+		size_t lastBackslash = path.find_last_of('\\');
+		if (lastBackslash != std::string::npos) {
+			std::string lastSection = path.substr(lastBackslash + 1);
+			if (lastSection.find(exeName) != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	if (!ownerInfo.name.empty()) {
+		std::string name = ownerInfo.name;
+		if (name.find(appName) != std::string::npos) {
+			return true;
+		}
+	}
+}
+
+bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
+}
+
+bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
+	return isGoogleChrome(ownerInfo);
+}
+
+std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string url;
 
+	ElementMatcher matcher;
+
+	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
 	CComPtr<IUIAutomationElement> pAddressBar;
-	HRESULT hr = findUIAElement(hwnd, &pAddressBar, googleChromeAddressBarMatcher);
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher);
 
 	if (SUCCEEDED(hr) && pAddressBar)
 	{
@@ -312,11 +360,17 @@ ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) 
 	return false;
 };
 
-std::string getChromeMode(HWND hwnd) {
+std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string mode;
 
+	ElementMatcher matcher;
+
+	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeIncognitoMatcher;
+	}
+
 	CComPtr<IUIAutomationElement> pIncognito;
-	HRESULT hr = findUIAElement(hwnd, &pIncognito, googleChromeIncognitoMatcher);
+	HRESULT hr = findUIAElement(hwnd, &pIncognito, matcher);
 
 	if (SUCCEEDED(hr) && pIncognito)
 	{
@@ -326,28 +380,6 @@ std::string getChromeMode(HWND hwnd) {
 	}
 
 	return mode;
-}
-
-bool isGoogleChrome(const OwnerWindowInfo& ownerWindowInfo) {
-	if (!ownerWindowInfo.path.empty()) {
-		std::string path = ownerWindowInfo.path;
-		size_t lastBackslash = path.find_last_of('\\');
-		if (lastBackslash != std::string::npos) {
-			std::string lastSection = path.substr(lastBackslash + 1);
-			if (lastSection.find("chrome") != std::string::npos) {
-				return true;
-			}
-		}
-	}
-
-	if (!ownerWindowInfo.name.empty()) {
-		std::string name = ownerWindowInfo.name;
-		if (name.find("Google Chrome") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
 }
 
 // Return window information
@@ -422,15 +454,14 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
 
-	// Check if the window is Google Chrome
-	if (isGoogleChrome(ownerInfo)) {
+	if (isSupportedBrowser(ownerInfo)) {
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
 		if (SUCCEEDED(hr)) {
-			std::string chromeUrl = getChromeUrl(hwnd);
-			std::string chromeMode = getChromeMode(hwnd);
-			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, chromeUrl));
-			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, chromeMode));
+			std::string url = getUrl(hwnd, ownerInfo);
+			std::string mode = getMode(hwnd, ownerInfo);
+			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
+			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
 		}
 
 		CoUninitialize();
