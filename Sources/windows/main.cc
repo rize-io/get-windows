@@ -310,8 +310,12 @@ bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
 	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
 }
 
+bool isFirefox(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "firefox", "Firefox");
+}
+
 bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
-	return isGoogleChrome(ownerInfo);
+	return isGoogleChrome(ownerInfo) || isFirefox(ownerInfo);
 }
 
 std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
@@ -321,6 +325,10 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 
 	if (isGoogleChrome(ownerInfo)) {
 		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isFirefox(ownerInfo)) {
+		matcher = firefoxAddressBarMatcher;
 	}
 
 	CComPtr<IUIAutomationElement> pAddressBar;
@@ -360,6 +368,20 @@ ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) 
 	return false;
 };
 
+ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Mozilla Firefox Private Browsing") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
 std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string mode;
 
@@ -367,6 +389,10 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 
 	if (isGoogleChrome(ownerInfo)) {
 		matcher = googleChromeIncognitoMatcher;
+	}
+
+	if (isFirefox(ownerInfo)) {
+		matcher = firefoxIncognitoMatcher;
 	}
 
 	CComPtr<IUIAutomationElement> pIncognito;
