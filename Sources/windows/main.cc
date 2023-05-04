@@ -328,6 +328,28 @@ std::string getChromeMode(HWND hwnd) {
 	return mode;
 }
 
+bool isGoogleChrome(const OwnerWindowInfo& ownerWindowInfo) {
+	if (!ownerWindowInfo.path.empty()) {
+		std::string path = ownerWindowInfo.path;
+		size_t lastBackslash = path.find_last_of('\\');
+		if (lastBackslash != std::string::npos) {
+			std::string lastSection = path.substr(lastBackslash + 1);
+			if (lastSection.find("chrome") != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	if (!ownerWindowInfo.name.empty()) {
+		std::string name = ownerWindowInfo.name;
+		if (name.find("Google Chrome") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
 // Return window information
 Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &info) {
 	Napi::Env env{info.Env()};
@@ -401,7 +423,7 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
 
 	// Check if the window is Google Chrome
-	if (ownerInfo.name == "Google Chrome") {
+	if (isGoogleChrome(ownerInfo)) {
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
 		if (SUCCEEDED(hr)) {
