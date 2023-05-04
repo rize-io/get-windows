@@ -190,43 +190,6 @@ bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
 	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo) || isOperaBrowser(ownerInfo);
 }
 
-bool isButtonControlType(IUIAutomationElement* element) {
-	CONTROLTYPEID controlId;
-	HRESULT hr = element->get_CurrentControlType(&controlId);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	return controlId != UIA_ButtonControlTypeId;
-}
-
-bool isEditControlType(IUIAutomationElement* element) {
-	CONTROLTYPEID controlId;
-	HRESULT hr = element->get_CurrentControlType(&controlId);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	return controlId != UIA_EditControlTypeId;
-}
-
-void printElementInfo(IUIAutomationElement* element) {
-	CComBSTR bstrName;
-	CComBSTR bstrLocalizedControlType;
-
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-		std::cout << "Element Name: " << strName << std::endl;
-	}
-
-	if (SUCCEEDED(element->get_CurrentLocalizedControlType(&bstrLocalizedControlType)) && bstrLocalizedControlType) {
-		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
-		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
-		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
-	}
-}
-
 IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
 	if (element == nullptr) {
 		return nullptr;
@@ -314,67 +277,41 @@ HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMa
 	}
 }
 
-ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isEditControlType(element)) {
+bool isButtonControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
 		return false;
 	}
 
-	CComBSTR bstrAccessKey;
-	if (SUCCEEDED(element->get_CurrentAccessKey(&bstrAccessKey)) && bstrAccessKey) {
-		std::wstring wstrAccessKey(bstrAccessKey, SysStringLen(bstrAccessKey));
-		std::string strAccessKey(wstrAccessKey.begin(), wstrAccessKey.end());
+	return controlId != UIA_ButtonControlTypeId;
+}
 
-		if (strAccessKey == "Ctrl+L") {
-			return true;
-		}
+bool isEditControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
 	}
 
+	return controlId != UIA_EditControlTypeId;
+}
+
+bool matchElementName(IUIAutomationElement* element, const std::string& targetName) {
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
 		std::string strName(wstrName.begin(), wstrName.end());
 
-		if (strName == "Address and search bar") {
+		if (strName.find(targetName) != std::string::npos) {
 			return true;
 		}
 	}
 
 	return false;
-};
+}
 
-ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isButtonControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Incognito") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
-};
-
-ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isButtonControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Private") != std::string::npos) {
-			return true;
-		}
-	}
-
+bool matchElementLegacyDescription(IUIAutomationElement* element, const std::string& targetDescription) {
 	CComPtr<IUIAutomationLegacyIAccessiblePattern> pLegacyIAccessiblePattern;
 	HRESULT hr = element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId, __uuidof(IUIAutomationLegacyIAccessiblePattern), (void**)&pLegacyIAccessiblePattern);
 	if (SUCCEEDED(hr) && pLegacyIAccessiblePattern) {
@@ -384,99 +321,45 @@ ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) 
 			std::wstring wstrDescription(bstrDescription, SysStringLen(bstrDescription));
 			std::string strDescription(wstrDescription.begin(), wstrDescription.end());
 
-			if (strDescription.find("This is a private window with Tor") != std::string::npos) {
+			if (strDescription.find(targetDescription) != std::string::npos) {
 				return true;
 			}
 		}
 	}
 
 	return false;
+}
+
+ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	return isEditControlType(element) && (matchElementName(element, "Ctrl+L") || matchElementName(element, "Address and search bar"));
+};
+
+ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && matchElementName(element, "Incognito");
+};
+
+ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && (matchElementName(element, "Private") || matchElementLegacyDescription(element, "This is a private window with Tor"));
 };
 
 ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isButtonControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("InPrivate") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
+	return isButtonControlType(element) && matchElementName(element, "InPrivate");
 };
 
 ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isEditControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Search with") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
+	return isEditControlType(element) && matchElementName(element, "Search with");
 };
 
 ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isButtonControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Mozilla Firefox Private Browsing") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
+	return isButtonControlType(element) && matchElementName(element, "Mozilla Firefox Private Browsing");
 };
 
 ElementMatcher operaBrowserAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	if (!isButtonControlType(element)) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Address field") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
+	return isButtonControlType(element) && matchElementName(element, "Address field");
 };
 
 ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Opera (Private)") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
+	return isButtonControlType(element) && matchElementName(element, "Opera (Private)");
 };
 
 std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
