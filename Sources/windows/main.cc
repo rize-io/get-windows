@@ -304,10 +304,16 @@ bool ownerHasName(const OwnerWindowInfo& ownerInfo, const std::string exeName, c
 			return true;
 		}
 	}
+
+	return false;
 }
 
 bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
 	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
+}
+
+bool isBraveBrowser(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "brave", "Brave Browser");
 }
 
 bool isFirefox(const OwnerWindowInfo& ownerInfo) {
@@ -315,7 +321,7 @@ bool isFirefox(const OwnerWindowInfo& ownerInfo) {
 }
 
 bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
-	return isGoogleChrome(ownerInfo) || isFirefox(ownerInfo);
+	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isFirefox(ownerInfo);
 }
 
 std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
@@ -324,6 +330,10 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	ElementMatcher matcher;
 
 	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isBraveBrowser(ownerInfo)) {
 		matcher = googleChromeAddressBarMatcher;
 	}
 
@@ -368,6 +378,35 @@ ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) 
 	return false;
 };
 
+ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Private") != std::string::npos) {
+			return true;
+		}
+	}
+
+	CComPtr<IUIAutomationLegacyIAccessiblePattern> pLegacyIAccessiblePattern;
+	HRESULT hr = element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId, __uuidof(IUIAutomationLegacyIAccessiblePattern), (void**)&pLegacyIAccessiblePattern);
+	if (SUCCEEDED(hr) && pLegacyIAccessiblePattern) {
+		CComBSTR bstrDescription;
+		hr = pLegacyIAccessiblePattern->get_CurrentDescription(&bstrDescription);
+		if (SUCCEEDED(hr) && bstrDescription) {
+			std::wstring wstrDescription(bstrDescription, SysStringLen(bstrDescription));
+			std::string strDescription(wstrDescription.begin(), wstrDescription.end());
+
+			if (strDescription.find("This is a private window with Tor") != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+};
+
 ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
@@ -389,6 +428,10 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 
 	if (isGoogleChrome(ownerInfo)) {
 		matcher = googleChromeIncognitoMatcher;
+	}
+
+	if (isBraveBrowser(ownerInfo)) {
+		matcher = braveBrowserIncognitoMatcher;
 	}
 
 	if (isFirefox(ownerInfo)) {
