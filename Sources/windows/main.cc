@@ -249,6 +249,16 @@ HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMa
 }
 
 ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	if (controlId != UIA_EditControlTypeId) {
+		return false;
+	}
+
 	CComBSTR bstrAccessKey;
 	if (SUCCEEDED(element->get_CurrentAccessKey(&bstrAccessKey)) && bstrAccessKey) {
 		std::wstring wstrAccessKey(bstrAccessKey, SysStringLen(bstrAccessKey));
@@ -273,6 +283,16 @@ ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element)
 };
 
 ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	if (controlId != UIA_EditControlTypeId) {
+		return false;
+	}
+
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -316,12 +336,16 @@ bool isBraveBrowser(const OwnerWindowInfo& ownerInfo) {
 	return ownerHasName(ownerInfo, "brave", "Brave Browser");
 }
 
+bool isMicrosoftEdge(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "msedge", "Microsoft Edge");
+}
+
 bool isFirefox(const OwnerWindowInfo& ownerInfo) {
 	return ownerHasName(ownerInfo, "firefox", "Firefox");
 }
 
 bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
-	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isFirefox(ownerInfo);
+	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo);
 }
 
 std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
@@ -334,6 +358,10 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	}
 
 	if (isBraveBrowser(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isMicrosoftEdge(ownerInfo)) {
 		matcher = googleChromeAddressBarMatcher;
 	}
 
@@ -364,7 +392,21 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	return url;
 }
 
+bool isButtonControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	return controlId != UIA_ButtonControlTypeId;
+}
+
 ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isButtonControlType(element)) {
+		return false;
+	}
+
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -379,6 +421,10 @@ ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) 
 };
 
 ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isButtonControlType(element)) {
+		return false;
+	}
+
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -407,7 +453,29 @@ ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) 
 	return false;
 };
 
+ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isButtonControlType(element)) {
+		return false;
+	}
+
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("InPrivate") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
 ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isButtonControlType(element)) {
+		return false;
+	}
+
 	CComBSTR bstrName;
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -432,6 +500,10 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 
 	if (isBraveBrowser(ownerInfo)) {
 		matcher = braveBrowserIncognitoMatcher;
+	}
+
+	if (isMicrosoftEdge(ownerInfo)) {
+		matcher = microsoftEdgeIncognitoMatcher;
 	}
 
 	if (isFirefox(ownerInfo)) {
