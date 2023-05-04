@@ -13,8 +13,10 @@
 #include <atlbase.h>
 #include <objbase.h>
 #include <chrono>
+#include <functional>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
+typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
 
 struct OwnerWindowInfo {
 	std::string path;
@@ -142,7 +144,6 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
-// Print information about an UI Automation Element
 void printElementInfo(IUIAutomationElement* element) {
 	CComBSTR bstrName;
 	CComBSTR bstrLocalizedControlType;
@@ -160,7 +161,7 @@ void printElementInfo(IUIAutomationElement* element) {
 	}
 }
 
-IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, bool skipChildren = false) {
+IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
 	if (element == nullptr) {
 		return nullptr;
 	}
@@ -181,26 +182,9 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		skipChildren = true;
 	}
 
-	CComBSTR bstrAccessKey;
-	if (SUCCEEDED(element->get_CurrentAccessKey(&bstrAccessKey)) && bstrAccessKey) {
-		std::wstring wstrAccessKey(bstrAccessKey, SysStringLen(bstrAccessKey));
-		std::string strAccessKey(wstrAccessKey.begin(), wstrAccessKey.end());
-
-		if (strAccessKey == "Ctrl+L") {
-			element->AddRef();
-			return element;
-		}
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName == "Address and search bar") {
-			element->AddRef();
-			return element;
-		}
+   if (matcher(element)) {
+		element->AddRef();
+		return element;
 	}
 
 	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
@@ -220,7 +204,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		CComPtr<IUIAutomationElement> pFirstChild;
 		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
 		if (SUCCEEDED(hr)) {
-			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration);
+			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration, matcher);
 			if (result) {
 				return result;
 			}
@@ -230,7 +214,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 	CComPtr<IUIAutomationElement> pNextSibling;
 	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
 	if (SUCCEEDED(hr)) {
-		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, controlId == UIA_DocumentControlTypeId);
+		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
 		if (result) {
 			return result;
 		}
@@ -239,47 +223,63 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 	return nullptr;
 }
 
+HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
+	HRESULT hr = S_OK;
+	CComPtr<IUIAutomation> pAutomation;
 
-HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar) {
-    HRESULT hr = S_OK;
-    CComPtr<IUIAutomation> pAutomation;
+	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) {
+		return hr;
+	}
 
-    hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-    if (FAILED(hr)) {
-        return hr;
-    }
+	CComPtr<IUIAutomationElement> pRootElement;
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	if (FAILED(hr)) {
+		return hr;
+	}
 
-    CComPtr<IUIAutomationElement> pRootElement;
-    hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
-    if (FAILED(hr)) {
-        return hr;
-    }
-
-    int iteration = 0;
-    IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration);
-    if (result) {
-        *ppAddressBar = result;
-        return S_OK;
-    } else {
-        return E_FAIL;
-    }
+	int iteration = 0;
+	IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration, matcher);
+	if (result) {
+		*ppAddressBar = result;
+		return S_OK;
+	} else {
+		return E_FAIL;
+	}
 }
+
+ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrAccessKey;
+	if (SUCCEEDED(element->get_CurrentAccessKey(&bstrAccessKey)) && bstrAccessKey) {
+		std::wstring wstrAccessKey(bstrAccessKey, SysStringLen(bstrAccessKey));
+		std::string strAccessKey(wstrAccessKey.begin(), wstrAccessKey.end());
+
+		if (strAccessKey == "Ctrl+L") {
+			return true;
+		}
+	}
+
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName == "Address and search bar") {
+			return true;
+		}
+	}
+
+	return false;
+};
 
 std::string getChromeUrl(HWND hwnd) {
 	std::string url;
 
-	auto start = std::chrono::high_resolution_clock::now();
-
 	CComPtr<IUIAutomationElement> pAddressBar;
-	HRESULT hr = findUIAElement(hwnd, &pAddressBar);
-
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-	std::cout << "findUIAElement took " << duration << " microseconds." << std::endl;
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar, googleChromeAddressBarMatcher);
 
 	if (SUCCEEDED(hr) && pAddressBar)
 	{
-		printElementInfo(pAddressBar);
 		CComPtr<IUIAutomationValuePattern> pValuePattern;
 		hr = pAddressBar->GetCurrentPattern(UIA_ValuePatternId, (IUnknown**)&pValuePattern);
 
@@ -298,42 +298,28 @@ std::string getChromeUrl(HWND hwnd) {
 	return url;
 }
 
-// Find the incognito button in Google Chrome
-HRESULT getChromeIncognitoUIAElement(HWND hwnd, IUIAutomationElement** ppIncognito)
-{
-	CComPtr<IUIAutomation> pAutomation;
-	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) return hr;
+ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
 
-	CComPtr<IUIAutomationElement> pRootElement;
-	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
-	if (FAILED(hr)) return hr;
+		if (strName.find("Incognito") != std::string::npos) {
+			return true;
+		}
+	}
 
-	CComPtr<IUIAutomationCondition> pNameCondition;
-	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Incognito"), &pNameCondition);
-	if (FAILED(hr)) return hr;
+	return false;
+};
 
-	hr = pRootElement->FindFirst(TreeScope_Subtree, pNameCondition, ppIncognito);
-
-	return hr;
-}
-
-// Get whether or not Google Chrome is in incognito mode
 std::string getChromeMode(HWND hwnd) {
 	std::string mode;
 
-	auto start = std::chrono::high_resolution_clock::now();
-
 	CComPtr<IUIAutomationElement> pIncognito;
-	HRESULT hr = getChromeIncognitoUIAElement(hwnd, &pIncognito);
-
-	auto end = std::chrono::high_resolution_clock::now();
-	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-	std::cout << "getChromeIncognitoUIAElement took " << duration << " microseconds." << std::endl;
+	HRESULT hr = findUIAElement(hwnd, &pIncognito, googleChromeIncognitoMatcher);
 
 	if (SUCCEEDED(hr) && pIncognito)
 	{
-		printElementInfo(pIncognito);
 		mode = "incognito";
 	} else {
 		mode = "normal";
@@ -420,9 +406,7 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 		if (SUCCEEDED(hr)) {
 			std::string chromeUrl = getChromeUrl(hwnd);
-			std::cout << "chromeUrl:  " << chromeUrl << std::endl;
 			std::string chromeMode = getChromeMode(hwnd);
-			std::cout << "chromeMode:  " << chromeMode << std::endl;
 			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, chromeUrl));
 			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, chromeMode));
 		}
