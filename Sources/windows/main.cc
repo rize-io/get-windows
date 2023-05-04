@@ -144,6 +144,72 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
+bool ownerHasName(const OwnerWindowInfo& ownerInfo, const std::string exeName, const std::string appName) {
+	if (!ownerInfo.path.empty()) {
+		std::string path = ownerInfo.path;
+		size_t lastBackslash = path.find_last_of('\\');
+		if (lastBackslash != std::string::npos) {
+			std::string lastSection = path.substr(lastBackslash + 1);
+			if (lastSection.find(exeName) != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	if (!ownerInfo.name.empty()) {
+		std::string name = ownerInfo.name;
+		if (name.find(appName) != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
+}
+
+bool isBraveBrowser(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "brave", "Brave Browser");
+}
+
+bool isMicrosoftEdge(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "msedge", "Microsoft Edge");
+}
+
+bool isFirefox(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "firefox", "Firefox");
+}
+
+bool isOperaBrowser(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "opera", "Opera Internet Browser");
+}
+
+bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
+	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo) || isOperaBrowser(ownerInfo);
+}
+
+bool isButtonControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	return controlId != UIA_ButtonControlTypeId;
+}
+
+bool isEditControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	return controlId != UIA_EditControlTypeId;
+}
+
 void printElementInfo(IUIAutomationElement* element) {
 	CComBSTR bstrName;
 	CComBSTR bstrLocalizedControlType;
@@ -249,13 +315,7 @@ HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMa
 }
 
 ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	CONTROLTYPEID controlId;
-	HRESULT hr = element->get_CurrentControlType(&controlId);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	if (controlId != UIA_EditControlTypeId) {
+	if (!isEditControlType(element)) {
 		return false;
 	}
 
@@ -281,126 +341,6 @@ ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element)
 
 	return false;
 };
-
-ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	CONTROLTYPEID controlId;
-	HRESULT hr = element->get_CurrentControlType(&controlId);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	if (controlId != UIA_EditControlTypeId) {
-		return false;
-	}
-
-	CComBSTR bstrName;
-	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
-		std::wstring wstrName(bstrName, SysStringLen(bstrName));
-		std::string strName(wstrName.begin(), wstrName.end());
-
-		if (strName.find("Search with") != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
-};
-
-bool ownerHasName(const OwnerWindowInfo& ownerInfo, const std::string exeName, const std::string appName) {
-	if (!ownerInfo.path.empty()) {
-		std::string path = ownerInfo.path;
-		size_t lastBackslash = path.find_last_of('\\');
-		if (lastBackslash != std::string::npos) {
-			std::string lastSection = path.substr(lastBackslash + 1);
-			if (lastSection.find(exeName) != std::string::npos) {
-				return true;
-			}
-		}
-	}
-
-	if (!ownerInfo.name.empty()) {
-		std::string name = ownerInfo.name;
-		if (name.find(appName) != std::string::npos) {
-			return true;
-		}
-	}
-
-	return false;
-}
-
-bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
-	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
-}
-
-bool isBraveBrowser(const OwnerWindowInfo& ownerInfo) {
-	return ownerHasName(ownerInfo, "brave", "Brave Browser");
-}
-
-bool isMicrosoftEdge(const OwnerWindowInfo& ownerInfo) {
-	return ownerHasName(ownerInfo, "msedge", "Microsoft Edge");
-}
-
-bool isFirefox(const OwnerWindowInfo& ownerInfo) {
-	return ownerHasName(ownerInfo, "firefox", "Firefox");
-}
-
-bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
-	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo);
-}
-
-std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
-	std::string url;
-
-	ElementMatcher matcher;
-
-	if (isGoogleChrome(ownerInfo)) {
-		matcher = googleChromeAddressBarMatcher;
-	}
-
-	if (isBraveBrowser(ownerInfo)) {
-		matcher = googleChromeAddressBarMatcher;
-	}
-
-	if (isMicrosoftEdge(ownerInfo)) {
-		matcher = googleChromeAddressBarMatcher;
-	}
-
-	if (isFirefox(ownerInfo)) {
-		matcher = firefoxAddressBarMatcher;
-	}
-
-	CComPtr<IUIAutomationElement> pAddressBar;
-	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher);
-
-	if (SUCCEEDED(hr) && pAddressBar)
-	{
-		CComPtr<IUIAutomationValuePattern> pValuePattern;
-		hr = pAddressBar->GetCurrentPattern(UIA_ValuePatternId, (IUnknown**)&pValuePattern);
-
-		if (SUCCEEDED(hr) && pValuePattern)
-		{
-			CComBSTR bstrValue;
-			hr = pValuePattern->get_CurrentValue(&bstrValue);
-
-			if (SUCCEEDED(hr) && bstrValue)
-			{
-				url = CW2A(bstrValue, CP_UTF8);
-			}
-		}
-	}
-
-	return url;
-}
-
-bool isButtonControlType(IUIAutomationElement* element) {
-	CONTROLTYPEID controlId;
-	HRESULT hr = element->get_CurrentControlType(&controlId);
-	if (FAILED(hr)) {
-		return false;
-	}
-
-	return controlId != UIA_ButtonControlTypeId;
-}
 
 ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
 	if (!isButtonControlType(element)) {
@@ -471,6 +411,24 @@ ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element)
 	return false;
 };
 
+ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isEditControlType(element)) {
+		return false;
+	}
+
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Search with") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
 ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
 	if (!isButtonControlType(element)) {
 		return false;
@@ -488,6 +446,86 @@ ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bo
 
 	return false;
 };
+
+ElementMatcher operaBrowserAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	if (!isButtonControlType(element)) {
+		return false;
+	}
+
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Address field") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find("Opera (Private)") != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+};
+
+std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
+	std::string url;
+
+	ElementMatcher matcher;
+
+	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isBraveBrowser(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isMicrosoftEdge(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isFirefox(ownerInfo)) {
+		matcher = firefoxAddressBarMatcher;
+	}
+
+	if (isOperaBrowser(ownerInfo)) {
+		matcher = operaBrowserAddressBarMatcher;
+	}
+
+	CComPtr<IUIAutomationElement> pAddressBar;
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher);
+
+	if (SUCCEEDED(hr) && pAddressBar)
+	{
+		CComPtr<IUIAutomationValuePattern> pValuePattern;
+		hr = pAddressBar->GetCurrentPattern(UIA_ValuePatternId, (IUnknown**)&pValuePattern);
+
+		if (SUCCEEDED(hr) && pValuePattern)
+		{
+			CComBSTR bstrValue;
+			hr = pValuePattern->get_CurrentValue(&bstrValue);
+
+			if (SUCCEEDED(hr) && bstrValue)
+			{
+				url = CW2A(bstrValue, CP_UTF8);
+			}
+		}
+	}
+
+	return url;
+}
 
 std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string mode;
@@ -508,6 +546,10 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 
 	if (isFirefox(ownerInfo)) {
 		matcher = firefoxIncognitoMatcher;
+	}
+
+	if (isOperaBrowser(ownerInfo)) {
+		matcher = operaBrowserIncognitoMatcher;
 	}
 
 	CComPtr<IUIAutomationElement> pIncognito;
