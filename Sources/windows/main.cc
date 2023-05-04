@@ -145,9 +145,7 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 // Print information about an UI Automation Element
 void printElementInfo(IUIAutomationElement* element) {
 	CComBSTR bstrName;
-	CONTROLTYPEID controlId;
 	CComBSTR bstrLocalizedControlType;
-	CComBSTR bstrAutomationId;
 
 	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
 		std::wstring wstrName(bstrName, SysStringLen(bstrName));
@@ -155,83 +153,129 @@ void printElementInfo(IUIAutomationElement* element) {
 		std::cout << "Element Name: " << strName << std::endl;
 	}
 
-	if (SUCCEEDED(element->get_CurrentControlType(&controlId))) {
-		std::cout << "Element ControlType: " << controlId << std::endl;
-	}
-
 	if (SUCCEEDED(element->get_CurrentLocalizedControlType(&bstrLocalizedControlType)) && bstrLocalizedControlType) {
 		std::wstring wstrLocalizedControlType(bstrLocalizedControlType, SysStringLen(bstrLocalizedControlType));
 		std::string strLocalizedControlType(wstrLocalizedControlType.begin(), wstrLocalizedControlType.end());
 		std::cout << "Element LocalizedControlType: " << strLocalizedControlType << std::endl;
 	}
+}
 
-	if (SUCCEEDED(element->get_CurrentAutomationId(&bstrAutomationId)) && bstrAutomationId) {
-		std::wstring wstrAutomationId(bstrAutomationId, SysStringLen(bstrAutomationId));
-		std::string strAutomationId(wstrAutomationId.begin(), wstrAutomationId.end());
-		std::cout << "Element AutomationId: " << strAutomationId << std::endl;
+IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, bool skipChildren = false) {
+	if (element == nullptr) {
+		return nullptr;
 	}
-}
 
-// Find the address bar in Google Chrome
-HRESULT getChromeAddressBarUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar)
-{
+	if (depth == 0 && iteration != 0) {
+		return nullptr;
+	}
+
+	iteration++;
+
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	if (controlId == UIA_DocumentControlTypeId || controlId == UIA_MenuBarControlTypeId || controlId == UIA_MenuControlTypeId || controlId == UIA_TabControlTypeId) {
+		skipChildren = true;
+	}
+
+	CComBSTR bstrAccessKey;
+	if (SUCCEEDED(element->get_CurrentAccessKey(&bstrAccessKey)) && bstrAccessKey) {
+		std::wstring wstrAccessKey(bstrAccessKey, SysStringLen(bstrAccessKey));
+		std::string strAccessKey(wstrAccessKey.begin(), wstrAccessKey.end());
+
+		if (strAccessKey == "Ctrl+L") {
+			element->AddRef();
+			return element;
+		}
+	}
+
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName == "Address and search bar") {
+			element->AddRef();
+			return element;
+		}
+	}
+
+	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
 	CComPtr<IUIAutomation> pAutomation;
-	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) return hr;
 
-	CComPtr<IUIAutomationElement> pRootElement;
-	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
-	if (FAILED(hr)) return hr;
+	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
 
-	CComPtr<IUIAutomationCondition> pAccessKeyCondition;
-	hr = pAutomation->CreatePropertyCondition(UIA_AccessKeyPropertyId, CComVariant("Ctrl+L"), &pAccessKeyCondition);
-	if (FAILED(hr)) return hr;
+	hr = pAutomation->get_RawViewWalker(&pTreeWalker);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
 
-	CComPtr<IUIAutomationCondition> pNameCondition;
-	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Address and search bar"), &pNameCondition);
-	if (FAILED(hr)) return hr;
+	if (!skipChildren) {
+		CComPtr<IUIAutomationElement> pFirstChild;
+		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
+		if (SUCCEEDED(hr)) {
+			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration);
+			if (result) {
+				return result;
+			}
+		}
+	}
 
-	CComPtr<IUIAutomationCondition> pOrCondition;
-	hr = pAutomation->CreateAndCondition(pAccessKeyCondition, pNameCondition, &pOrCondition);
-	if (FAILED(hr)) return hr;
+	CComPtr<IUIAutomationElement> pNextSibling;
+	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
+	if (SUCCEEDED(hr)) {
+		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, controlId == UIA_DocumentControlTypeId);
+		if (result) {
+			return result;
+		}
+	}
 
-	hr = pRootElement->FindFirst(TreeScope_Subtree, pOrCondition, ppAddressBar);
-
-	return hr;
+	return nullptr;
 }
 
-// Find the incognito button in Google Chrome
-HRESULT getChromeIncognitoUIAElement(HWND hwnd, IUIAutomationElement** ppIncognito)
-{
-	CComPtr<IUIAutomation> pAutomation;
-	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) return hr;
 
-	CComPtr<IUIAutomationElement> pRootElement;
-	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
-	if (FAILED(hr)) return hr;
+HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar) {
+    HRESULT hr = S_OK;
+    CComPtr<IUIAutomation> pAutomation;
 
-	CComPtr<IUIAutomationCondition> pNameCondition;
-	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Incognito"), &pNameCondition);
-	if (FAILED(hr)) return hr;
+    hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+    if (FAILED(hr)) {
+        return hr;
+    }
 
-	hr = pRootElement->FindFirst(TreeScope_Subtree, pNameCondition, ppIncognito);
+    CComPtr<IUIAutomationElement> pRootElement;
+    hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+    if (FAILED(hr)) {
+        return hr;
+    }
 
-	return hr;
+    int iteration = 0;
+    IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration);
+    if (result) {
+        *ppAddressBar = result;
+        return S_OK;
+    } else {
+        return E_FAIL;
+    }
 }
 
-// Get the URL from Google Chrome
 std::string getChromeUrl(HWND hwnd) {
 	std::string url;
 
 	auto start = std::chrono::high_resolution_clock::now();
 
 	CComPtr<IUIAutomationElement> pAddressBar;
-	HRESULT hr = getChromeAddressBarUIAElement(hwnd, &pAddressBar);
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar);
 
 	auto end = std::chrono::high_resolution_clock::now();
 	auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-	std::cout << "getChromeAddressBarUIAElement took " << duration << " microseconds." << std::endl;
+	std::cout << "findUIAElement took " << duration << " microseconds." << std::endl;
 
 	if (SUCCEEDED(hr) && pAddressBar)
 	{
@@ -252,6 +296,26 @@ std::string getChromeUrl(HWND hwnd) {
 	}
 
 	return url;
+}
+
+// Find the incognito button in Google Chrome
+HRESULT getChromeIncognitoUIAElement(HWND hwnd, IUIAutomationElement** ppIncognito)
+{
+	CComPtr<IUIAutomation> pAutomation;
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationElement> pRootElement;
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	if (FAILED(hr)) return hr;
+
+	CComPtr<IUIAutomationCondition> pNameCondition;
+	hr = pAutomation->CreatePropertyCondition(UIA_NamePropertyId, CComVariant("Incognito"), &pNameCondition);
+	if (FAILED(hr)) return hr;
+
+	hr = pRootElement->FindFirst(TreeScope_Subtree, pNameCondition, ppIncognito);
+
+	return hr;
 }
 
 // Get whether or not Google Chrome is in incognito mode
