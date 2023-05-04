@@ -79,7 +79,7 @@ std::string getDescriptionFromFileVersionInfo(const BYTE *pBlock) {
 		WORD wCodePage;
 	} * lpTranslate;
 
-	LANGANDCODEPAGE codePage{0x040904E4};
+	LANGANDCODEPAGE codePage{0x0409, 0x04E4};
 	// Get language struct
 	if (VerQueryValueW((LPVOID *)pBlock, (LPCWSTR)L"\\VarFileInfo\\Translation", (LPVOID *)&lpTranslate, &bufLen)) {
 		codePage = lpTranslate[0];
