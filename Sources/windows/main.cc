@@ -14,6 +14,7 @@
 #include <objbase.h>
 #include <chrono>
 #include <functional>
+#include <tuple>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
@@ -284,7 +285,7 @@ bool isButtonControlType(IUIAutomationElement* element) {
 		return false;
 	}
 
-	return controlId != UIA_ButtonControlTypeId;
+	return controlId == UIA_ButtonControlTypeId;
 }
 
 bool isEditControlType(IUIAutomationElement* element) {
@@ -294,7 +295,7 @@ bool isEditControlType(IUIAutomationElement* element) {
 		return false;
 	}
 
-	return controlId != UIA_EditControlTypeId;
+	return controlId == UIA_EditControlTypeId;
 }
 
 bool matchElementName(IUIAutomationElement* element, const std::string& targetName) {
@@ -334,37 +335,16 @@ ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element)
 	return isEditControlType(element) && (matchElementName(element, "Ctrl+L") || matchElementName(element, "Address and search bar"));
 };
 
-ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && matchElementName(element, "Incognito");
-};
-
-ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && (matchElementName(element, "Private") || matchElementLegacyDescription(element, "This is a private window with Tor"));
-};
-
-ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && matchElementName(element, "InPrivate");
-};
-
 ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
 	return isEditControlType(element) && matchElementName(element, "Search with");
 };
 
-ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && matchElementName(element, "Mozilla Firefox Private Browsing");
-};
-
 ElementMatcher operaBrowserAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && matchElementName(element, "Address field");
-};
-
-ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
-	return isButtonControlType(element) && matchElementName(element, "Opera (Private)");
+	return isEditControlType(element) && matchElementName(element, "Address field");
 };
 
 std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string url;
-
 	ElementMatcher matcher;
 
 	if (isGoogleChrome(ownerInfo)) {
@@ -410,9 +390,28 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	return url;
 }
 
+ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && matchElementName(element, "Incognito");
+};
+
+ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && (matchElementName(element, "Private") || matchElementLegacyDescription(element, "This is a private window with Tor"));
+};
+
+ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && matchElementName(element, "InPrivate");
+};
+
+ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return matchElementName(element, "Mozilla Firefox Private Browsing");
+};
+
+ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return matchElementName(element, "Opera (Private)");
+};
+
 std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	std::string mode;
-
 	ElementMatcher matcher;
 
 	if (isGoogleChrome(ownerInfo)) {
@@ -446,6 +445,41 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	}
 
 	return mode;
+}
+
+bool isValidUrl(const std::string& url) {
+    return (url.substr(0, 7) == "http://" || url.substr(0, 8) == "https://");
+}
+
+std::tuple<std::string, std::string> extractUrlFromTitle(const std::string& input) {
+	std::string title;
+	std::string url;
+
+	std::string delimiter = " - ";
+	size_t pos = input.rfind(delimiter);
+
+	while (pos != std::string::npos) {
+		std::string tentativeUrl = input.substr(pos + delimiter.length());
+		size_t nextDelimiter = tentativeUrl.find(delimiter);
+
+		if (nextDelimiter != std::string::npos) {
+			tentativeUrl = tentativeUrl.substr(0, nextDelimiter);
+		}
+
+		if (isValidUrl(tentativeUrl)) {
+			title = input.substr(0, pos);
+			url = tentativeUrl;
+			break;
+		} else {
+			pos = input.rfind(delimiter, pos - 1);
+		}
+	}
+
+	if (url.empty()) {
+		title = input;
+	}
+
+	return std::make_tuple(title, url);
 }
 
 // Return window information
@@ -515,12 +549,19 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 	activeWinObj.Set(Napi::String::New(env, "platform"), Napi::String::New(env, "windows"));
 	activeWinObj.Set(Napi::String::New(env, "id"), (LONG_PTR)hwnd);
-	activeWinObj.Set(Napi::String::New(env, "title"), getWindowTitle(hwnd));
 	activeWinObj.Set(Napi::String::New(env, "owner"), owner);
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
 
-	if (isSupportedBrowser(ownerInfo)) {
+	std::string windowTitle = getWindowTitle(hwnd);
+	auto [title, url] = extractUrlFromTitle(windowTitle);
+
+	activeWinObj.Set(Napi::String::New(env, "title"), Napi::String::New(env, title));
+
+	if (!url.empty()) {
+		activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
+		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
+	} else if  (isSupportedBrowser(ownerInfo)) {
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
 		if (SUCCEEDED(hr)) {
