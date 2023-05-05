@@ -514,7 +514,7 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	Napi::Object activeWinObj = Napi::Object::New(env);
 
 	activeWinObj.Set(Napi::String::New(env, "platform"), Napi::String::New(env, "windows"));
-	activeWinObj.Set(Napi::String::New(env, "id"), (LONG)hwnd);
+	activeWinObj.Set(Napi::String::New(env, "id"), (LONG_PTR)hwnd);
 	activeWinObj.Set(Napi::String::New(env, "title"), getWindowTitle(hwnd));
 	activeWinObj.Set(Napi::String::New(env, "owner"), owner);
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
