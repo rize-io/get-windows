@@ -540,10 +540,14 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 	Napi::Object bounds = Napi::Object::New(env);
 
-	bounds.Set(Napi::String::New(env, "x"), lpRect.left);
-	bounds.Set(Napi::String::New(env, "y"), lpRect.top);
-	bounds.Set(Napi::String::New(env, "width"), lpRect.right - lpRect.left);
-	bounds.Set(Napi::String::New(env, "height"), lpRect.bottom - lpRect.top);
+	UINT dpi = 96;
+	dpi = GetDpiForWindow(hwnd);
+	float scale_factor = dpi / 96.0f;
+
+	bounds.Set(Napi::String::New(env, "x"), static_cast<int>(lpRect.left / scale_factor));
+	bounds.Set(Napi::String::New(env, "y"), static_cast<int>(lpRect.top / scale_factor));
+	bounds.Set(Napi::String::New(env, "width"), static_cast<int>((lpRect.right - lpRect.left) / scale_factor));
+	bounds.Set(Napi::String::New(env, "height"), static_cast<int>((lpRect.bottom - lpRect.top) / scale_factor));
 
 	Napi::Object activeWinObj = Napi::Object::New(env);
 
