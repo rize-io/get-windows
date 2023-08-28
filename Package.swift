@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
 	name: "ActiveWin",
 	platforms: [
-		.macOS(.v13)
+		.macOS(.v10)
 	],
 	products: [
 		.executable(
