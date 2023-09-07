@@ -537,9 +537,9 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	std::string title = getWindowTitle(hwnd);
 	activeWinObj.Set(Napi::String::New(env, "title"), Napi::String::New(env, title));
 
-	bool titleContainsUrl = titleContainsUrl(title);
+	bool titleContainsUrlBool = titleContainsUrl(title);
 
-	if (titleContainsUrl) {
+	if (titleContainsUrlBool) {
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
 	} else if  (isSupportedBrowser(ownerInfo)) {
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
