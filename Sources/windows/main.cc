@@ -15,6 +15,7 @@
 #include <chrono>
 #include <functional>
 #include <tuple>
+#include <regex>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
@@ -451,36 +452,12 @@ bool isValidUrl(const std::string& url) {
     return (url.substr(0, 7) == "http://" || url.substr(0, 8) == "https://");
 }
 
-std::tuple<std::string, std::string> extractUrlFromTitle(const std::string& input) {
-	std::string title;
-	std::string url;
+bool titleContainsUrl(const std::string& input) {
+    std::regex pattern(R"(- (https?://\S+))");
 
-	std::string delimiter = " - ";
-	size_t pos = input.rfind(delimiter);
-
-	while (pos != std::string::npos) {
-		std::string tentativeUrl = input.substr(pos + delimiter.length());
-		size_t nextDelimiter = tentativeUrl.find(delimiter);
-
-		if (nextDelimiter != std::string::npos) {
-			tentativeUrl = tentativeUrl.substr(0, nextDelimiter);
-		}
-
-		if (isValidUrl(tentativeUrl)) {
-			title = input.substr(0, pos);
-			url = tentativeUrl;
-			break;
-		} else {
-			pos = input.rfind(delimiter, pos - 1);
-		}
-	}
-
-	if (url.empty()) {
-		title = input;
-	}
-
-	return std::make_tuple(title, url);
+    return std::regex_search(input, pattern);
 }
+
 
 // Return window information
 Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &info) {
@@ -557,13 +534,12 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
 
-	std::string windowTitle = getWindowTitle(hwnd);
-	auto [title, url] = extractUrlFromTitle(windowTitle);
-
+	std::string title = getWindowTitle(hwnd);
 	activeWinObj.Set(Napi::String::New(env, "title"), Napi::String::New(env, title));
 
-	if (!url.empty()) {
-		activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
+	bool titleContainsUrl = titleContainsUrl(title);
+
+	if (titleContainsUrl) {
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
 	} else if  (isSupportedBrowser(ownerInfo)) {
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
