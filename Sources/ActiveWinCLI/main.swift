@@ -12,7 +12,7 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 			end tell
 			window_data
 			"""
-	case "com.apple.Safari", "com.apple.SafariTechnologyPreview", "com.kagi.kagimacOS":
+	case "com.apple.Safari", "com.apple.SafariTechnologyPreview":
 		return """
 			tell app id \"\(appId)\"
 				set window_url to URL of front document
