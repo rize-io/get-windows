@@ -1,6 +1,6 @@
 {
 	"name": "@rize-io/active-win",
-	"version": "8.1.1-beta.20",
+	"version": "8.1.1-beta.21",
 	"description": "Get metadata about the active window (title, id, bounds, owner, URL, etc)",
 	"license": "MIT",
 	"repository": {
