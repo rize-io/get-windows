@@ -31,7 +31,7 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 				set window_data to window_url & "+++++" & window_name & "+++++" & window_mode
 			end tell
 			window_data
-		"""
+			"""
 	case "company.thebrowser.Browser", "com.sigmaos.sigmaos.macos", "com.SigmaOS.SigmaOS":
 		return """
 			tell app id \"\(appId)\"
