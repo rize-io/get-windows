@@ -29,8 +29,8 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 				set window_name to name of front window
 				set window_mode to "normal"
 				set window_data to window_url & "+++++" & window_name & "+++++" & window_mode
-				window_data
-			end tell'
+			end tell
+			window_data
 		"""
 	case "company.thebrowser.Browser", "com.sigmaos.sigmaos.macos", "com.SigmaOS.SigmaOS":
 		return """
