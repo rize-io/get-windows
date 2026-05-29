@@ -86,7 +86,7 @@ Returns a `Promise<object>` with the result, or `Promise<undefined>` if there is
 	- `bundleId` *(string)* - Bundle identifier *(macOS only)*
 	- `path` *(string)* - Path to the app
 - `url` *(string?)* - URL of the active browser tab if the active window *(macOS only)*
-	- Supported browsers: Safari (includes Technology Preview), Chrome (includes Beta, Dev, and Canary), Edge (includes Beta, Dev, and Canary), Brave (includes Beta and Nightly), Mighty, Ghost Browser, Wavebox, Sidekick, Opera (includes Beta and Developer), or Vivaldi
+	- Supported browsers: Safari (includes Technology Preview), Chrome (includes Beta, Dev, and Canary), Edge (includes Beta, Dev, and Canary), Brave (includes Beta and Nightly), Mighty, Ghost Browser, Wavebox, Sidekick, Opera (includes Beta, Developer, and GX), Vivaldi, Arc, Kagi, SigmaOS, Yandex, Comet, or Dia
 - `memoryUsage` *(number)* - Memory usage by the window owner process
 
 ### openWindows()
