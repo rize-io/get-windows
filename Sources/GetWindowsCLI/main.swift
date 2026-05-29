@@ -2,7 +2,7 @@ import AppKit
 
 func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 	switch appId {
-	case "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary", "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly", "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary", "com.mighty.app", "com.ghostbrowser.gb1", "com.bookry.wavebox", "com.pushplaylabs.sidekick", "com.operasoftware.Opera", "com.operasoftware.OperaNext", "com.operasoftware.OperaDeveloper", "com.vivaldi.Vivaldi", "ru.yandex.desktop.yandex-browser", "com.operasoftware.OperaGX", "ai.perplexity.comet", "company.thebrowser.dia":
+	case "com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary", "com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly", "com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary", "com.mighty.app", "com.ghostbrowser.gb1", "com.bookry.wavebox", "com.pushplaylabs.sidekick", "com.operasoftware.Opera", "com.operasoftware.OperaNext", "com.operasoftware.OperaDeveloper", "com.vivaldi.Vivaldi", "ru.yandex.desktop.yandex-browser", "com.operasoftware.OperaGX", "ai.perplexity.comet":
 		return """
 			tell app id \"\(appId)\"
 				set window_url to URL of active tab of front window
@@ -29,6 +29,25 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 				set window_name to name of front window
 				set window_mode to "normal"
 				set window_data to window_url & "+++++" & window_name & "+++++" & window_mode
+			end tell
+			window_data
+			"""
+	case "company.thebrowser.dia":
+		return """
+			tell app id \"\(appId)\"
+				tell front window
+					set window_url to \"\"
+					set window_name to \"\"
+					repeat with t in tabs
+						if isFocused of t is true then
+							set window_url to URL of t
+							set window_name to title of t
+							exit repeat
+						end if
+					end repeat
+					set window_mode to \"normal\"
+					set window_data to window_url & \"+++++\" & window_name & \"+++++\" & window_mode
+				end tell
 			end tell
 			window_data
 			"""
