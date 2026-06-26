@@ -23,6 +23,10 @@ typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
 CComPtr<IUIAutomation> g_pAutomation;
 CComPtr<IUIAutomationTreeWalker> g_pTreeWalker;
 
+// Cache incognito mode per HWND — mode never changes for a given browser window
+static HWND g_lastModeHwnd = NULL;
+static std::string g_lastMode;
+
 struct OwnerWindowInfo {
 	std::string path;
 	std::string name;
@@ -529,7 +533,16 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
 	} else if  (isSupportedBrowser(ownerInfo) && g_pAutomation) {
 		std::string url = getUrl(hwnd, ownerInfo);
-		std::string mode = getMode(hwnd, ownerInfo);
+		std::string mode;
+
+		if (hwnd == g_lastModeHwnd) {
+			mode = g_lastMode;
+		} else {
+			mode = getMode(hwnd, ownerInfo);
+			g_lastModeHwnd = hwnd;
+			g_lastMode = mode;
+		}
+
 		activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
 	}
