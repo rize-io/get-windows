@@ -3,7 +3,6 @@ name: Build & publish binary node
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 concurrency:
   group: ${{ github.head_ref || github.run_id }}
@@ -31,15 +30,15 @@ jobs:
 
     name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v3
 
       - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v2
+        uses: microsoft/setup-msbuild@v1.1
         with:
           msbuild-architecture: ${{ matrix.target }}
 
       - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node }}
           architecture: ${{ matrix.host }}
@@ -56,20 +55,20 @@ jobs:
             echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
           fi
       - name: Configure build
-        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }} --verbose
 
       - name: Build binaries
-        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }} --verbose
 
       - name: Package prebuilt binaries
-        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }}
+        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }} --verbose
 
       # Run only for matrix.node 18
       - name: Upload binaries to commit artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v3
         if: matrix.node == 18
         with:
-          name: prebuilt-binaries-${{ matrix.target }}
+          name: prebuilt-binaries
           path: build/stage/*/*
           retention-days: 7
 
