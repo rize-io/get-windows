@@ -23,11 +23,9 @@ typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
 CComPtr<IUIAutomation> g_pAutomation;
 CComPtr<IUIAutomationTreeWalker> g_pTreeWalker;
 
-// Cache last browser UIA results to skip expensive tree walks when window unchanged
-static HWND g_lastBrowserHwnd = NULL;
-static std::string g_lastBrowserTitle;
-static std::string g_lastBrowserUrl;
-static std::string g_lastBrowserMode;
+// Cache incognito mode per HWND — mode never changes for a given browser window
+static HWND g_lastModeHwnd = NULL;
+static std::string g_lastMode;
 
 struct OwnerWindowInfo {
 	std::string path;
@@ -534,19 +532,15 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	if (titleContainsUrlBool) {
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
 	} else if  (isSupportedBrowser(ownerInfo) && g_pAutomation) {
-		std::string url;
+		std::string url = getUrl(hwnd, ownerInfo);
 		std::string mode;
 
-		if (hwnd == g_lastBrowserHwnd && title == g_lastBrowserTitle) {
-			url = g_lastBrowserUrl;
-			mode = g_lastBrowserMode;
+		if (hwnd == g_lastModeHwnd) {
+			mode = g_lastMode;
 		} else {
-			url = getUrl(hwnd, ownerInfo);
 			mode = getMode(hwnd, ownerInfo);
-			g_lastBrowserHwnd = hwnd;
-			g_lastBrowserTitle = title;
-			g_lastBrowserUrl = url;
-			g_lastBrowserMode = mode;
+			g_lastModeHwnd = hwnd;
+			g_lastMode = mode;
 		}
 
 		activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
