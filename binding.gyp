@@ -18,6 +18,7 @@
 						'libraries': [
 							'version.lib',
 							'Dwmapi.lib',
+							'UIAutomationCore.lib'
 						],
 					},
 				],

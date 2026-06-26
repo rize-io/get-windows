@@ -9,8 +9,16 @@
 #include <version>
 #include <dwmapi.h>
 #include <algorithm>
+#include <uiautomation.h>
+#include <atlbase.h>
+#include <objbase.h>
+#include <chrono>
+#include <functional>
+#include <tuple>
+#include <regex>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
+typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
 
 struct OwnerWindowInfo {
 	std::string path;
@@ -73,7 +81,7 @@ std::string getDescriptionFromFileVersionInfo(const BYTE *pBlock) {
 		WORD wCodePage;
 	} * lpTranslate;
 
-	LANGANDCODEPAGE codePage{0x040904E4};
+	LANGANDCODEPAGE codePage{0x0409, 0x04E4};
 	// Get language struct
 	if (VerQueryValueW((LPVOID *)pBlock, (LPCWSTR)L"\\VarFileInfo\\Translation", (LPVOID *)&lpTranslate, &bufLen)) {
 		codePage = lpTranslate[0];
@@ -138,6 +146,319 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 	return TRUE;
 }
 
+bool ownerHasName(const OwnerWindowInfo& ownerInfo, const std::string exeName, const std::string appName) {
+	if (!ownerInfo.path.empty()) {
+		std::string path = ownerInfo.path;
+		size_t lastBackslash = path.find_last_of('\\');
+		if (lastBackslash != std::string::npos) {
+			std::string lastSection = path.substr(lastBackslash + 1);
+			if (lastSection.find(exeName) != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	if (!ownerInfo.name.empty()) {
+		std::string name = ownerInfo.name;
+		if (name.find(appName) != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool isGoogleChrome(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "chrome", "Google Chrome");
+}
+
+bool isBraveBrowser(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "brave", "Brave Browser");
+}
+
+bool isMicrosoftEdge(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "msedge", "Microsoft Edge");
+}
+
+bool isFirefox(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "firefox", "Firefox");
+}
+
+bool isOperaBrowser(const OwnerWindowInfo& ownerInfo) {
+	return ownerHasName(ownerInfo, "opera", "Opera Internet Browser");
+}
+
+bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
+	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo) || isOperaBrowser(ownerInfo);
+}
+
+IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
+	if (element == nullptr) {
+		return nullptr;
+	}
+
+	if (depth == 0 && iteration != 0) {
+		return nullptr;
+	}
+
+	iteration++;
+
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	if (controlId == UIA_DocumentControlTypeId || controlId == UIA_MenuBarControlTypeId || controlId == UIA_MenuControlTypeId || controlId == UIA_TabControlTypeId || controlId == UIA_CustomControlTypeId) {
+		skipChildren = true;
+	}
+
+   if (matcher(element)) {
+		element->AddRef();
+		return element;
+	}
+
+	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
+	CComPtr<IUIAutomation> pAutomation;
+
+	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	hr = pAutomation->get_RawViewWalker(&pTreeWalker);
+	if (FAILED(hr)) {
+		return nullptr;
+	}
+
+	if (!skipChildren) {
+		CComPtr<IUIAutomationElement> pFirstChild;
+		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
+		if (SUCCEEDED(hr)) {
+			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration, matcher);
+			if (result) {
+				return result;
+			}
+		}
+	}
+
+	CComPtr<IUIAutomationElement> pNextSibling;
+	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
+	if (SUCCEEDED(hr)) {
+		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
+		if (result) {
+			return result;
+		}
+	}
+
+	return nullptr;
+}
+
+HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
+	HRESULT hr = S_OK;
+	CComPtr<IUIAutomation> pAutomation;
+
+	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) {
+		return hr;
+	}
+
+	CComPtr<IUIAutomationElement> pRootElement;
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	if (FAILED(hr)) {
+		return hr;
+	}
+
+	int iteration = 0;
+	IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration, matcher);
+	if (result) {
+		*ppAddressBar = result;
+		return S_OK;
+	} else {
+		return E_FAIL;
+	}
+}
+
+bool isButtonControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	return controlId == UIA_ButtonControlTypeId;
+}
+
+bool isEditControlType(IUIAutomationElement* element) {
+	CONTROLTYPEID controlId;
+	HRESULT hr = element->get_CurrentControlType(&controlId);
+	if (FAILED(hr)) {
+		return false;
+	}
+
+	return controlId == UIA_EditControlTypeId;
+}
+
+bool matchElementName(IUIAutomationElement* element, const std::string& targetName) {
+	CComBSTR bstrName;
+	if (SUCCEEDED(element->get_CurrentName(&bstrName)) && bstrName) {
+		std::wstring wstrName(bstrName, SysStringLen(bstrName));
+		std::string strName(wstrName.begin(), wstrName.end());
+
+		if (strName.find(targetName) != std::string::npos) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool matchElementLegacyDescription(IUIAutomationElement* element, const std::string& targetDescription) {
+	CComPtr<IUIAutomationLegacyIAccessiblePattern> pLegacyIAccessiblePattern;
+	HRESULT hr = element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId, __uuidof(IUIAutomationLegacyIAccessiblePattern), (void**)&pLegacyIAccessiblePattern);
+	if (SUCCEEDED(hr) && pLegacyIAccessiblePattern) {
+		CComBSTR bstrDescription;
+		hr = pLegacyIAccessiblePattern->get_CurrentDescription(&bstrDescription);
+		if (SUCCEEDED(hr) && bstrDescription) {
+			std::wstring wstrDescription(bstrDescription, SysStringLen(bstrDescription));
+			std::string strDescription(wstrDescription.begin(), wstrDescription.end());
+
+			if (strDescription.find(targetDescription) != std::string::npos) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+ElementMatcher googleChromeAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	return isEditControlType(element) && (matchElementName(element, "Ctrl+L") || matchElementName(element, "Address and search bar"));
+};
+
+ElementMatcher firefoxAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	return isEditControlType(element) && matchElementName(element, "Search with");
+};
+
+ElementMatcher operaBrowserAddressBarMatcher = [](IUIAutomationElement* element) -> bool {
+	return isEditControlType(element) && matchElementName(element, "Address field");
+};
+
+std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
+	std::string url;
+	ElementMatcher matcher;
+
+	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isBraveBrowser(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isMicrosoftEdge(ownerInfo)) {
+		matcher = googleChromeAddressBarMatcher;
+	}
+
+	if (isFirefox(ownerInfo)) {
+		matcher = firefoxAddressBarMatcher;
+	}
+
+	if (isOperaBrowser(ownerInfo)) {
+		matcher = operaBrowserAddressBarMatcher;
+	}
+
+	CComPtr<IUIAutomationElement> pAddressBar;
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher);
+
+	if (SUCCEEDED(hr) && pAddressBar)
+	{
+		CComPtr<IUIAutomationValuePattern> pValuePattern;
+		hr = pAddressBar->GetCurrentPattern(UIA_ValuePatternId, (IUnknown**)&pValuePattern);
+
+		if (SUCCEEDED(hr) && pValuePattern)
+		{
+			CComBSTR bstrValue;
+			hr = pValuePattern->get_CurrentValue(&bstrValue);
+
+			if (SUCCEEDED(hr) && bstrValue)
+			{
+				url = CW2A(bstrValue, CP_UTF8);
+			}
+		}
+	}
+
+	return url;
+}
+
+ElementMatcher googleChromeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && matchElementName(element, "Incognito");
+};
+
+ElementMatcher braveBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && (matchElementName(element, "Private") || matchElementLegacyDescription(element, "This is a private window with Tor"));
+};
+
+ElementMatcher microsoftEdgeIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return isButtonControlType(element) && matchElementName(element, "InPrivate");
+};
+
+ElementMatcher firefoxIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return matchElementName(element, "Mozilla Firefox Private Browsing");
+};
+
+ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) -> bool {
+	return matchElementName(element, "Opera (Private)");
+};
+
+std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
+	std::string mode;
+	ElementMatcher matcher;
+
+	if (isGoogleChrome(ownerInfo)) {
+		matcher = googleChromeIncognitoMatcher;
+	}
+
+	if (isBraveBrowser(ownerInfo)) {
+		matcher = braveBrowserIncognitoMatcher;
+	}
+
+	if (isMicrosoftEdge(ownerInfo)) {
+		matcher = microsoftEdgeIncognitoMatcher;
+	}
+
+	if (isFirefox(ownerInfo)) {
+		matcher = firefoxIncognitoMatcher;
+	}
+
+	if (isOperaBrowser(ownerInfo)) {
+		matcher = operaBrowserIncognitoMatcher;
+	}
+
+	CComPtr<IUIAutomationElement> pIncognito;
+	HRESULT hr = findUIAElement(hwnd, &pIncognito, matcher);
+
+	if (SUCCEEDED(hr) && pIncognito)
+	{
+		mode = "incognito";
+	} else {
+		mode = "normal";
+	}
+
+	return mode;
+}
+
+bool isValidUrl(const std::string& url) {
+    return (url.substr(0, 7) == "http://" || url.substr(0, 8) == "https://");
+}
+
+bool titleContainsUrl(const std::string& input) {
+    std::regex pattern(R"(- (https?://\S+))");
+
+    return std::regex_search(input, pattern);
+}
+
+
 // Return window information
 Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &info) {
 	Napi::Env env{info.Env()};
@@ -181,13 +502,10 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 		return env.Null();
 	}
 
-	RECT lpWinRect;
-	BOOL rectWinResult = GetWindowRect(hwnd, &lpWinRect);
+	RECT lpRect;
+	BOOL rectResult = GetWindowRect(hwnd, &lpRect);
 
-	RECT lpClientRect;
-	BOOL rectClientResult = GetClientRect(hwnd, &lpClientRect);
-
-	if (rectWinResult == 0 || rectClientResult == 0 ) {
+	if (rectResult == 0) {
 		return env.Null();
 	}
 
@@ -197,36 +515,44 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 	owner.Set(Napi::String::New(env, "path"), ownerInfo.path);
 	owner.Set(Napi::String::New(env, "name"), ownerInfo.name);
 
-	// bounds window
 	Napi::Object bounds = Napi::Object::New(env);
 
-	bounds.Set(Napi::String::New(env, "x"), lpWinRect.left);
-	bounds.Set(Napi::String::New(env, "y"), lpWinRect.top);
-	bounds.Set(Napi::String::New(env, "width"), lpWinRect.right - lpWinRect.left);
-	bounds.Set(Napi::String::New(env, "height"), lpWinRect.bottom - lpWinRect.top);
+	UINT dpi = 96;
+	dpi = GetDpiForWindow(hwnd);
+	float scale_factor = dpi / 96.0f;
 
-	// bounds content
-	POINT rectTopLeft = {lpClientRect.left, lpClientRect.top};
-	ClientToScreen(hwnd, &rectTopLeft);
-	POINT rectBottomRight = {lpClientRect.right, lpClientRect.bottom};
-	ClientToScreen(hwnd, &rectBottomRight);
-
-	Napi::Object contentBounds = Napi::Object::New(env);
-
-	contentBounds.Set(Napi::String::New(env, "x"), rectTopLeft.x);
-	contentBounds.Set(Napi::String::New(env, "y"), rectTopLeft.y);
-	contentBounds.Set(Napi::String::New(env, "width"), rectBottomRight.x - rectTopLeft.x);
-	contentBounds.Set(Napi::String::New(env, "height"), rectBottomRight.y - rectTopLeft.y);
+	bounds.Set(Napi::String::New(env, "x"), static_cast<int>(lpRect.left / scale_factor));
+	bounds.Set(Napi::String::New(env, "y"), static_cast<int>(lpRect.top / scale_factor));
+	bounds.Set(Napi::String::New(env, "width"), static_cast<int>((lpRect.right - lpRect.left) / scale_factor));
+	bounds.Set(Napi::String::New(env, "height"), static_cast<int>((lpRect.bottom - lpRect.top) / scale_factor));
 
 	Napi::Object activeWinObj = Napi::Object::New(env);
 
 	activeWinObj.Set(Napi::String::New(env, "platform"), Napi::String::New(env, "windows"));
-	activeWinObj.Set(Napi::String::New(env, "id"), (LONG)hwnd);
-	activeWinObj.Set(Napi::String::New(env, "title"), getWindowTitle(hwnd));
+	activeWinObj.Set(Napi::String::New(env, "id"), (LONG_PTR)hwnd);
 	activeWinObj.Set(Napi::String::New(env, "owner"), owner);
 	activeWinObj.Set(Napi::String::New(env, "bounds"), bounds);
-	activeWinObj.Set(Napi::String::New(env, "contentBounds"), contentBounds);
 	activeWinObj.Set(Napi::String::New(env, "memoryUsage"), memoryCounter.WorkingSetSize);
+
+	std::string title = getWindowTitle(hwnd);
+	activeWinObj.Set(Napi::String::New(env, "title"), Napi::String::New(env, title));
+
+	bool titleContainsUrlBool = titleContainsUrl(title);
+
+	if (titleContainsUrlBool) {
+		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
+	} else if  (isSupportedBrowser(ownerInfo)) {
+		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+		if (SUCCEEDED(hr)) {
+			std::string url = getUrl(hwnd, ownerInfo);
+			std::string mode = getMode(hwnd, ownerInfo);
+			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
+			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
+		}
+
+		CoUninitialize();
+	}
 
 	return activeWinObj;
 }
@@ -240,15 +566,9 @@ BOOL CALLBACK EnumDekstopWindowsProc(HWND hwnd, LPARAM lParam) {
 		WINDOWINFO winInfo{};
 		GetWindowInfo(hwnd, &winInfo);
 
-		const bool hasCaption = (winInfo.dwStyle & WS_CAPTION) == WS_CAPTION;
-		const bool hasPopup = (winInfo.dwStyle & WS_POPUP) == WS_POPUP;
-		const bool isOwnedWindow = GetWindow(hwnd, GW_OWNER) != NULL;
-		const bool isAppWindow = (winInfo.dwExStyle & WS_EX_APPWINDOW) == WS_EX_APPWINDOW;
-
 		if (
 			(winInfo.dwExStyle & WS_EX_TOOLWINDOW) == 0
-			&& (hasCaption || hasPopup)
-			&& (!isOwnedWindow || isAppWindow)
+			&& (winInfo.dwStyle & WS_CAPTION) == WS_CAPTION
 			&& (winInfo.dwStyle & WS_CHILD) == 0
 		) {
 			int ClockedVal;
