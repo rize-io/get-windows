@@ -20,6 +20,9 @@
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
 
+CComPtr<IUIAutomation> g_pAutomation;
+CComPtr<IUIAutomationTreeWalker> g_pTreeWalker;
+
 struct OwnerWindowInfo {
 	std::string path;
 	std::string name;
@@ -192,8 +195,8 @@ bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
 	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo) || isOperaBrowser(ownerInfo);
 }
 
-IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
-	if (element == nullptr) {
+IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, IUIAutomationTreeWalker* pTreeWalker, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
+	if (element == nullptr || pTreeWalker == nullptr) {
 		return nullptr;
 	}
 
@@ -213,29 +216,16 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		skipChildren = true;
 	}
 
-   if (matcher(element)) {
+	if (matcher(element)) {
 		element->AddRef();
 		return element;
-	}
-
-	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
-	CComPtr<IUIAutomation> pAutomation;
-
-	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) {
-		return nullptr;
-	}
-
-	hr = pAutomation->get_RawViewWalker(&pTreeWalker);
-	if (FAILED(hr)) {
-		return nullptr;
 	}
 
 	if (!skipChildren) {
 		CComPtr<IUIAutomationElement> pFirstChild;
 		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
 		if (SUCCEEDED(hr)) {
-			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration, matcher);
+			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, pTreeWalker, depth + 1, iteration, matcher);
 			if (result) {
 				return result;
 			}
@@ -245,7 +235,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 	CComPtr<IUIAutomationElement> pNextSibling;
 	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
 	if (SUCCEEDED(hr)) {
-		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
+		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, pTreeWalker, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
 		if (result) {
 			return result;
 		}
@@ -255,22 +245,18 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 }
 
 HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
-	HRESULT hr = S_OK;
-	CComPtr<IUIAutomation> pAutomation;
-
-	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) {
-		return hr;
+	if (!g_pAutomation || !g_pTreeWalker) {
+		return E_FAIL;
 	}
 
 	CComPtr<IUIAutomationElement> pRootElement;
-	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	HRESULT hr = g_pAutomation->ElementFromHandle(hwnd, &pRootElement);
 	if (FAILED(hr)) {
 		return hr;
 	}
 
 	int iteration = 0;
-	IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration, matcher);
+	IUIAutomationElement* result = findUIAElementRecursively(pRootElement, g_pTreeWalker, 0, iteration, matcher);
 	if (result) {
 		*ppAddressBar = result;
 		return S_OK;
@@ -541,17 +527,11 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 	if (titleContainsUrlBool) {
 		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, "normal"));
-	} else if  (isSupportedBrowser(ownerInfo)) {
-		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-
-		if (SUCCEEDED(hr)) {
-			std::string url = getUrl(hwnd, ownerInfo);
-			std::string mode = getMode(hwnd, ownerInfo);
-			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
-			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
-		}
-
-		CoUninitialize();
+	} else if  (isSupportedBrowser(ownerInfo) && g_pAutomation) {
+		std::string url = getUrl(hwnd, ownerInfo);
+		std::string mode = getMode(hwnd, ownerInfo);
+		activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
+		activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
 	}
 
 	return activeWinObj;
@@ -611,6 +591,13 @@ Napi::Array getOpenWindows(const Napi::CallbackInfo &info) {
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
+	CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&g_pAutomation);
+	if (SUCCEEDED(hr) && g_pAutomation) {
+		g_pAutomation->get_RawViewWalker(&g_pTreeWalker);
+	}
+
 	exports.Set(Napi::String::New(env, "getActiveWindow"), Napi::Function::New(env, getActiveWindow));
 	exports.Set(Napi::String::New(env, "getOpenWindows"), Napi::Function::New(env, getOpenWindows));
 	return exports;
