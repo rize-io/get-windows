@@ -64,7 +64,7 @@ export type BaseResult = {
 	owner: BaseOwner;
 
 	/**
-	Memory usage by the window owner process.
+	Memory usage by the window.
 	*/
 	memoryUsage: number;
 };
@@ -84,7 +84,7 @@ export type MacOSResult = {
 	owner: MacOSOwner;
 
 	/**
-	URL of the active browser tab if the active window is Safari (includes Technology Preview), Chrome (includes Beta, Dev, and Canary), Edge (includes Beta, Dev, and Canary), Brave (includes Beta and Nightly), Mighty, Ghost Browser, Wavebox, Sidekick, Opera (includes Beta, Developer, and GX), or Vivaldi.
+	URL of the active browser tab if the active window is Safari (includes Technology Preview), Chrome (includes Beta, Dev, and Canary), Edge (includes Beta, Dev, and Canary), Brave (includes Beta and Nightly), Mighty, Ghost Browser, WaveBox, Sidekick, Opera (includes Beta, Developer, and GX), Vivaldi, Arc, Kagi, SigmaOS, Yandex, Comet, or Dia.
 	*/
 	url?: string;
 } & BaseResult;
@@ -95,16 +95,6 @@ export type LinuxResult = {
 
 export type WindowsResult = {
 	platform: 'windows';
-
-	/**
-	Window content position and size, which excludes the title bar, menu bar, and frame.
-	*/
-	contentBounds: {
-		x: number;
-		y: number;
-		width: number;
-		height: number;
-	};
 } & BaseResult;
 
 export type Result = MacOSResult | LinuxResult | WindowsResult;
