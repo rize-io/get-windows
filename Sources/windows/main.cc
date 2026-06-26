@@ -137,7 +137,7 @@ BOOL CALLBACK EnumChildWindowsProc(HWND hwnd, LPARAM lParam) {
 
 	if (phlde != NULL) {
 		newOwner = getProcessPathAndName(phlde);
-		CloseHandle(hwnd);
+		CloseHandle(phlde);
 		if (ownerInfo->path != newOwner.path) {
 			return FALSE;
 		}
@@ -481,7 +481,7 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 
 	// ApplicationFrameHost & Universal Windows Platform Support
 	if (getFileName(ownerInfo.path) == "ApplicationFrameHost.exe") {
-		newOwner = (OwnerWindowInfo) * new OwnerWindowInfo();
+		newOwner = OwnerWindowInfo();
 		BOOL result = EnumChildWindows(hwnd, (WNDENUMPROC)EnumChildWindowsProc, (LPARAM)&ownerInfo);
 		if (result == FALSE && newOwner.name.size())
 		{
