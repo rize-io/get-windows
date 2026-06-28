@@ -43,5 +43,8 @@ if (result) {
 	} else {
 		expectType<WindowsResult>(result);
 		expectError(result.owner.bundleId);
+		expectType<string | undefined>(result.url);
+		expectType<string | undefined>(result.mode);
+		expectType<boolean | undefined>(result.searchTruncated);
 	}
 }
