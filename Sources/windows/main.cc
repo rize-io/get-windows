@@ -232,11 +232,8 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationTreeWalker* pTreeWa
 		return nullptr;
 	}
 
-	// Bail out after visiting too many nodes. Log when the cap trips so that
-	// silent misses (no URL / "normal" mode on a deep browser tree) are visible.
+	// Bail out after visiting too many nodes
 	if (iteration >= MAX_UIA_ITERATIONS) {
-		std::cerr << "[get-windows] UIA tree walk hit MAX_UIA_ITERATIONS ("
-			<< MAX_UIA_ITERATIONS << "); aborting search early" << std::endl;
 		return nullptr;
 	}
 
