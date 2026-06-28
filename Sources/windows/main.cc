@@ -16,14 +16,46 @@
 #include <functional>
 #include <tuple>
 #include <regex>
+#include <unordered_map>
+#include <mutex>
 
 typedef int(__stdcall *lp_GetScaleFactorForMonitor)(HMONITOR, DEVICE_SCALE_FACTOR *);
 typedef std::function<bool(IUIAutomationElement*)> ElementMatcher;
+
+// Cap recursive UIA tree walks to avoid excessive cross-process I/O
+static const int MAX_UIA_ITERATIONS = 500;
 
 struct OwnerWindowInfo {
 	std::string path;
 	std::string name;
 };
+
+// Cache for file version info (process path -> display name).
+// Avoids re-reading large EXEs (e.g. Chrome 200+ MB) on every call.
+static std::unordered_map<std::string, std::string> fileVersionCache;
+
+// Singleton UIA COM instance and tree walker, created once per process
+// instead of per-recursive-call. Eliminates thousands of CoCreateInstance
+// calls per tree walk.
+static CComPtr<IUIAutomation> g_pAutomation;
+static CComPtr<IUIAutomationTreeWalker> g_pTreeWalker;
+
+static bool ensureUIAutomation() {
+	if (g_pAutomation) return true;
+
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr,
+		CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation),
+		(void**)&g_pAutomation);
+	if (FAILED(hr)) return false;
+
+	hr = g_pAutomation->get_RawViewWalker(&g_pTreeWalker);
+	if (FAILED(hr)) {
+		g_pAutomation.Release();
+		return false;
+	}
+
+	return true;
+}
 
 template <typename T>
 T getValueFromCallbackData(const Napi::CallbackInfo &info, unsigned handleIndex) {
@@ -70,6 +102,8 @@ std::string getWindowTitle(const HWND hwnd) {
 	std::wstring ws(t);
 	std::string title = toUtf8(ws);
 
+	delete[] t;
+
 	return title;
 }
 
@@ -99,7 +133,7 @@ std::string getDescriptionFromFileVersionInfo(const BYTE *pBlock) {
 	return "";
 }
 
-// Return process path and name
+// Return process path and name, with cached file version info lookups
 OwnerWindowInfo getProcessPathAndName(const HANDLE &phlde) {
 	DWORD dwSize{MAX_PATH};
 	wchar_t exeName[MAX_PATH]{};
@@ -107,10 +141,20 @@ OwnerWindowInfo getProcessPathAndName(const HANDLE &phlde) {
 	std::string path = toUtf8(exeName);
 	std::string name = getFileName(path);
 
+	// Check cache before reading the EXE from disk
+	auto it = fileVersionCache.find(path);
+	if (it != fileVersionCache.end()) {
+		if (!it->second.empty()) {
+			name = it->second;
+		}
+		return {path, name};
+	}
+
 	DWORD dwHandle = 0;
 	wchar_t *wspath(exeName);
 	DWORD infoSize = GetFileVersionInfoSizeW(wspath, &dwHandle);
 
+	std::string cachedName;
 	if (infoSize != 0) {
 		BYTE *pVersionInfo = new BYTE[infoSize];
 		std::unique_ptr<BYTE[]> skey_automatic_cleanup(pVersionInfo);
@@ -118,9 +162,12 @@ OwnerWindowInfo getProcessPathAndName(const HANDLE &phlde) {
 			std::string nname = getDescriptionFromFileVersionInfo(pVersionInfo);
 			if (nname != "") {
 				name = nname;
+				cachedName = nname;
 			}
 		}
 	}
+
+	fileVersionCache[path] = cachedName;
 
 	return {path, name};
 }
@@ -201,6 +248,11 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		return nullptr;
 	}
 
+	// Bail out after visiting too many nodes
+	if (iteration >= MAX_UIA_ITERATIONS) {
+		return nullptr;
+	}
+
 	iteration++;
 
 	CONTROLTYPEID controlId;
@@ -218,22 +270,14 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		return element;
 	}
 
-	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
-	CComPtr<IUIAutomation> pAutomation;
-
-	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) {
-		return nullptr;
-	}
-
-	hr = pAutomation->get_RawViewWalker(&pTreeWalker);
-	if (FAILED(hr)) {
+	// Use the singleton tree walker instead of creating COM instances per call
+	if (!g_pTreeWalker) {
 		return nullptr;
 	}
 
 	if (!skipChildren) {
 		CComPtr<IUIAutomationElement> pFirstChild;
-		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
+		hr = g_pTreeWalker->GetFirstChildElement(element, &pFirstChild);
 		if (SUCCEEDED(hr)) {
 			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration, matcher);
 			if (result) {
@@ -243,7 +287,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 	}
 
 	CComPtr<IUIAutomationElement> pNextSibling;
-	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
+	hr = g_pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
 	if (SUCCEEDED(hr)) {
 		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
 		if (result) {
@@ -255,16 +299,12 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 }
 
 HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
-	HRESULT hr = S_OK;
-	CComPtr<IUIAutomation> pAutomation;
-
-	hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
-	if (FAILED(hr)) {
-		return hr;
+	if (!ensureUIAutomation()) {
+		return E_FAIL;
 	}
 
 	CComPtr<IUIAutomationElement> pRootElement;
-	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	HRESULT hr = g_pAutomation->ElementFromHandle(hwnd, &pRootElement);
 	if (FAILED(hr)) {
 		return hr;
 	}
