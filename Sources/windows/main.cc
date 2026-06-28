@@ -283,7 +283,7 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationTreeWalker* pTreeWa
 	return nullptr;
 }
 
-HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
+HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher, bool& searchTruncated) {
 	// Create the automation object + tree walker once per call (reused across
 	// the whole recursive walk) instead of per recursive node visit.
 	CComPtr<IUIAutomation> pAutomation;
@@ -306,6 +306,13 @@ HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMa
 
 	int iteration = 0;
 	IUIAutomationElement* result = findUIAElementRecursively(pTreeWalker, pRootElement, 0, iteration, matcher);
+
+	// Report when the walk gave up at the iteration cap without finding a match,
+	// so callers can distinguish "no such element" from "search bailed early".
+	if (!result && iteration >= MAX_UIA_ITERATIONS) {
+		searchTruncated = true;
+	}
+
 	if (result) {
 		*ppAddressBar = result;
 		return S_OK;
@@ -379,7 +386,7 @@ ElementMatcher operaBrowserAddressBarMatcher = [](IUIAutomationElement* element)
 	return isEditControlType(element) && matchElementName(element, "Address field");
 };
 
-std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
+std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo, bool& searchTruncated) {
 	std::string url;
 	ElementMatcher matcher;
 
@@ -404,7 +411,7 @@ std::string getUrl(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	}
 
 	CComPtr<IUIAutomationElement> pAddressBar;
-	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher);
+	HRESULT hr = findUIAElement(hwnd, &pAddressBar, matcher, searchTruncated);
 
 	if (SUCCEEDED(hr) && pAddressBar)
 	{
@@ -446,7 +453,7 @@ ElementMatcher operaBrowserIncognitoMatcher = [](IUIAutomationElement* element) 
 	return matchElementName(element, "Opera (Private)");
 };
 
-std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
+std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo, bool& searchTruncated) {
 	std::string mode;
 	ElementMatcher matcher;
 
@@ -471,7 +478,7 @@ std::string getMode(HWND hwnd, const OwnerWindowInfo& ownerInfo) {
 	}
 
 	CComPtr<IUIAutomationElement> pIncognito;
-	HRESULT hr = findUIAElement(hwnd, &pIncognito, matcher);
+	HRESULT hr = findUIAElement(hwnd, &pIncognito, matcher, searchTruncated);
 
 	if (SUCCEEDED(hr) && pIncognito)
 	{
@@ -580,10 +587,12 @@ Napi::Value getWindowInformation(const HWND &hwnd, const Napi::CallbackInfo &inf
 		HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 
 		if (SUCCEEDED(hr)) {
-			std::string url = getUrl(hwnd, ownerInfo);
-			std::string mode = getMode(hwnd, ownerInfo);
+			bool searchTruncated = false;
+			std::string url = getUrl(hwnd, ownerInfo, searchTruncated);
+			std::string mode = getMode(hwnd, ownerInfo, searchTruncated);
 			activeWinObj.Set(Napi::String::New(env, "url"), Napi::String::New(env, url));
 			activeWinObj.Set(Napi::String::New(env, "mode"), Napi::String::New(env, mode));
+			activeWinObj.Set(Napi::String::New(env, "searchTruncated"), Napi::Boolean::New(env, searchTruncated));
 		}
 
 		CoUninitialize();

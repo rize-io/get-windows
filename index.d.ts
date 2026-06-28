@@ -95,6 +95,21 @@ export type LinuxResult = {
 
 export type WindowsResult = {
 	platform: 'windows';
+
+	/**
+	URL of the active browser tab if the active window is a supported browser (Chrome, Edge, Brave, Firefox, or Opera).
+	*/
+	url?: string;
+
+	/**
+	Browsing mode of the active browser window: `'incognito'` for a private/incognito window, otherwise `'normal'`.
+	*/
+	mode?: string;
+
+	/**
+	`true` when the UI Automation tree walk used to read `url`/`mode` hit its node cap before finding a match, meaning those values may be missing or inaccurate for this window. Used for diagnosing missed reads on deep browser UI trees.
+	*/
+	searchTruncated?: boolean;
 } & BaseResult;
 
 export type Result = MacOSResult | LinuxResult | WindowsResult;
