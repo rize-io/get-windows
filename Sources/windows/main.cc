@@ -33,29 +33,7 @@ struct OwnerWindowInfo {
 // Cache for file version info (process path -> display name).
 // Avoids re-reading large EXEs (e.g. Chrome 200+ MB) on every call.
 static std::unordered_map<std::string, std::string> fileVersionCache;
-
-// Singleton UIA COM instance and tree walker, created once per process
-// instead of per-recursive-call. Eliminates thousands of CoCreateInstance
-// calls per tree walk.
-static CComPtr<IUIAutomation> g_pAutomation;
-static CComPtr<IUIAutomationTreeWalker> g_pTreeWalker;
-
-static bool ensureUIAutomation() {
-	if (g_pAutomation) return true;
-
-	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr,
-		CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation),
-		(void**)&g_pAutomation);
-	if (FAILED(hr)) return false;
-
-	hr = g_pAutomation->get_RawViewWalker(&g_pTreeWalker);
-	if (FAILED(hr)) {
-		g_pAutomation.Release();
-		return false;
-	}
-
-	return true;
-}
+static std::mutex fileVersionCacheMutex;
 
 template <typename T>
 T getValueFromCallbackData(const Napi::CallbackInfo &info, unsigned handleIndex) {
@@ -142,12 +120,15 @@ OwnerWindowInfo getProcessPathAndName(const HANDLE &phlde) {
 	std::string name = getFileName(path);
 
 	// Check cache before reading the EXE from disk
-	auto it = fileVersionCache.find(path);
-	if (it != fileVersionCache.end()) {
-		if (!it->second.empty()) {
-			name = it->second;
+	{
+		std::lock_guard<std::mutex> lock(fileVersionCacheMutex);
+		auto it = fileVersionCache.find(path);
+		if (it != fileVersionCache.end()) {
+			if (!it->second.empty()) {
+				name = it->second;
+			}
+			return {path, name};
 		}
-		return {path, name};
 	}
 
 	DWORD dwHandle = 0;
@@ -167,7 +148,10 @@ OwnerWindowInfo getProcessPathAndName(const HANDLE &phlde) {
 		}
 	}
 
-	fileVersionCache[path] = cachedName;
+	{
+		std::lock_guard<std::mutex> lock(fileVersionCacheMutex);
+		fileVersionCache[path] = cachedName;
+	}
 
 	return {path, name};
 }
@@ -239,7 +223,7 @@ bool isSupportedBrowser(const OwnerWindowInfo& ownerInfo) {
 	return isGoogleChrome(ownerInfo) || isBraveBrowser(ownerInfo) || isMicrosoftEdge(ownerInfo) || isFirefox(ownerInfo) || isOperaBrowser(ownerInfo);
 }
 
-IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
+IUIAutomationElement* findUIAElementRecursively(IUIAutomationTreeWalker* pTreeWalker, IUIAutomationElement* element, int depth, int& iteration, ElementMatcher matcher, bool skipChildren = false) {
 	if (element == nullptr) {
 		return nullptr;
 	}
@@ -248,8 +232,11 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		return nullptr;
 	}
 
-	// Bail out after visiting too many nodes
+	// Bail out after visiting too many nodes. Log when the cap trips so that
+	// silent misses (no URL / "normal" mode on a deep browser tree) are visible.
 	if (iteration >= MAX_UIA_ITERATIONS) {
+		std::cerr << "[get-windows] UIA tree walk hit MAX_UIA_ITERATIONS ("
+			<< MAX_UIA_ITERATIONS << "); aborting search early" << std::endl;
 		return nullptr;
 	}
 
@@ -270,16 +257,17 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 		return element;
 	}
 
-	// Use the singleton tree walker instead of creating COM instances per call
-	if (!g_pTreeWalker) {
+	// Reuse the tree walker created once per findUIAElement call instead of
+	// creating COM instances per recursive node visit.
+	if (!pTreeWalker) {
 		return nullptr;
 	}
 
 	if (!skipChildren) {
 		CComPtr<IUIAutomationElement> pFirstChild;
-		hr = g_pTreeWalker->GetFirstChildElement(element, &pFirstChild);
+		hr = pTreeWalker->GetFirstChildElement(element, &pFirstChild);
 		if (SUCCEEDED(hr)) {
-			IUIAutomationElement* result = findUIAElementRecursively(pFirstChild, depth + 1, iteration, matcher);
+			IUIAutomationElement* result = findUIAElementRecursively(pTreeWalker, pFirstChild, depth + 1, iteration, matcher);
 			if (result) {
 				return result;
 			}
@@ -287,9 +275,9 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 	}
 
 	CComPtr<IUIAutomationElement> pNextSibling;
-	hr = g_pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
+	hr = pTreeWalker->GetNextSiblingElement(element, &pNextSibling);
 	if (SUCCEEDED(hr)) {
-		IUIAutomationElement* result = findUIAElementRecursively(pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
+		IUIAutomationElement* result = findUIAElementRecursively(pTreeWalker, pNextSibling, depth, iteration, matcher, controlId == UIA_DocumentControlTypeId);
 		if (result) {
 			return result;
 		}
@@ -299,18 +287,28 @@ IUIAutomationElement* findUIAElementRecursively(IUIAutomationElement* element, i
 }
 
 HRESULT findUIAElement(HWND hwnd, IUIAutomationElement** ppAddressBar, ElementMatcher matcher) {
-	if (!ensureUIAutomation()) {
-		return E_FAIL;
+	// Create the automation object + tree walker once per call (reused across
+	// the whole recursive walk) instead of per recursive node visit.
+	CComPtr<IUIAutomation> pAutomation;
+	HRESULT hr = CoCreateInstance(__uuidof(CUIAutomation), nullptr, CLSCTX_INPROC_SERVER, __uuidof(IUIAutomation), (void**)&pAutomation);
+	if (FAILED(hr)) {
+		return hr;
+	}
+
+	CComPtr<IUIAutomationTreeWalker> pTreeWalker;
+	hr = pAutomation->get_RawViewWalker(&pTreeWalker);
+	if (FAILED(hr)) {
+		return hr;
 	}
 
 	CComPtr<IUIAutomationElement> pRootElement;
-	HRESULT hr = g_pAutomation->ElementFromHandle(hwnd, &pRootElement);
+	hr = pAutomation->ElementFromHandle(hwnd, &pRootElement);
 	if (FAILED(hr)) {
 		return hr;
 	}
 
 	int iteration = 0;
-	IUIAutomationElement* result = findUIAElementRecursively(pRootElement, 0, iteration, matcher);
+	IUIAutomationElement* result = findUIAElementRecursively(pTreeWalker, pRootElement, 0, iteration, matcher);
 	if (result) {
 		*ppAddressBar = result;
 		return S_OK;
