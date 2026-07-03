@@ -155,6 +155,7 @@ func getWindowInformation(window: [String: Any], windowOwnerPID: pid_t) -> [Stri
 let disableAccessibilityPermission = CommandLine.arguments.contains("--no-accessibility-permission")
 let disableScreenRecordingPermission = CommandLine.arguments.contains("--no-screen-recording-permission")
 let enableOpenWindowsList = CommandLine.arguments.contains("--open-windows-list")
+let requireLayerZero = CommandLine.arguments.contains("--require-layer-zero")
 
 // Show accessibility permission prompt if needed. Required to get the URL of the active tab in browsers.
 if !disableAccessibilityPermission {
@@ -185,6 +186,11 @@ var openWindows = [[String: Any]]();
 for window in windows {
 	let windowOwnerPID = window[kCGWindowOwnerPID as String] as! pid_t // Documented to always exist.
 	if !enableOpenWindowsList && windowOwnerPID != frontmostAppPID {
+		continue
+	}
+
+	// Skip windows above the standard window layer, like the menu bar and overlays.
+	if requireLayerZero, (window[kCGWindowLayer as String] as? Int ?? 0) != 0 {
 		continue
 	}
 

@@ -64,6 +64,13 @@ Default: `true`
 
 Enable the screen recording permission check. Setting this to `false` will prevent the screen recording permission prompt on macOS versions 10.15 and newer. The `title` property in the result will always be set to an empty string.
 
+##### requireLayerZero **(macOS only)**
+
+Type: `boolean`\
+Default: `false`
+
+Only include windows on the standard window layer (layer 0). Setting this to `true` will skip windows on other layers, such as the menu bar, status bar items, and overlays.
+
 ### activeWindowSync(options?)
 
 Get metadata about the active window synchronously.
