@@ -144,9 +144,17 @@ func getWindowInformation(window: [String: Any], windowOwnerPID: pid_t) -> [Stri
 		let windowData = runAppleScript(source: script)
 	{
 		let windowDataArray = windowData.components(separatedBy: "+++++")
-		output["url"] = windowDataArray[0]
-		output["title"] = windowDataArray[1]
-		output["mode"] = windowDataArray[2]
+		if windowDataArray.count >= 3 {
+			output["url"] = windowDataArray[0]
+
+			// Some apps, like Notes, report an empty accessibility title. Keep the title from the window list in that case.
+			let scriptTitle = windowDataArray[1]
+			if !scriptTitle.isEmpty {
+				output["title"] = scriptTitle
+			}
+
+			output["mode"] = windowDataArray[2]
+		}
 	}
 
 	return output
