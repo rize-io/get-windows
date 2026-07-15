@@ -16,7 +16,6 @@ expectType<Promise<Result | undefined>>(activeWindow());
 const result = activeWindowSync({
 	screenRecordingPermission: false,
 	accessibilityPermission: false,
-	requireLayerZero: true,
 });
 
 expectType<Result | undefined>(result);
