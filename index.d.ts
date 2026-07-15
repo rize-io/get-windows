@@ -16,15 +16,6 @@ export type Options = {
 	@default true
 	*/
 	readonly screenRecordingPermission: boolean;
-
-	/**
-	Only include windows on the standard window layer (layer 0). _(macOS)_
-
-	Setting this to `true` will skip windows on other layers, such as the menu bar, status bar items, and overlays.
-
-	@default false
-	*/
-	readonly requireLayerZero?: boolean;
 };
 
 export type BaseOwner = {
