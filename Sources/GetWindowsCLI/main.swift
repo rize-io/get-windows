@@ -1,4 +1,136 @@
 import AppKit
+import Vision
+
+struct OcrLine {
+	let text: String
+	let confidence: Float
+	let x: CGFloat
+	let y: CGFloat
+}
+
+let aiAppTitleOcrBundleIdentifiers = Set([
+	"com.anthropic.claudefordesktop",
+	"com.openai.codex"
+])
+
+let ignoredAiAppTitleOcrText = Set([
+	"artifacts",
+	"chat",
+	"chats",
+	"code",
+	"cowork",
+	"customize",
+	"dispatch",
+	"from calendar",
+	"from drive",
+	"from gmail",
+	"home",
+	"learn",
+	"new",
+	"no chats",
+	"open in",
+	"plugins",
+	"projects",
+	"recents",
+	"scheduled",
+	"search",
+	"show more",
+	"write"
+])
+
+func cleanOcrText(_ text: String) -> String {
+	text
+		.trimmingCharacters(in: .whitespacesAndNewlines)
+		.trimmingCharacters(in: CharacterSet(charactersIn: "•·-–—→←<>‹›+*|"))
+		.trimmingCharacters(in: .whitespacesAndNewlines)
+}
+
+func normalizedOcrText(_ text: String) -> String {
+	text
+		.lowercased()
+		.components(separatedBy: CharacterSet.alphanumerics.inverted)
+		.filter { !$0.isEmpty }
+		.joined(separator: " ")
+}
+
+func isEmptyTitle(_ title: String) -> Bool {
+	let normalizedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+	return normalizedTitle.isEmpty
+}
+
+@available(macOS 10.15, *)
+func recognizeTextInWindow(windowID: CGWindowID) -> [OcrLine] {
+	guard
+		let image = CGWindowListCreateImage(
+			.null,
+			.optionIncludingWindow,
+			windowID,
+			[.boundsIgnoreFraming, .bestResolution]
+		)
+	else {
+		return []
+	}
+
+	var lines = [OcrLine]()
+	let request = VNRecognizeTextRequest { request, _ in
+		let observations = request.results as? [VNRecognizedTextObservation] ?? []
+		lines = observations.compactMap { observation in
+			guard let candidate = observation.topCandidates(1).first else {
+				return nil
+			}
+
+			let text = cleanOcrText(candidate.string)
+			if text.isEmpty || text.count > 160 || candidate.confidence < 0.35 {
+				return nil
+			}
+
+			return OcrLine(
+				text: text,
+				confidence: candidate.confidence,
+				x: observation.boundingBox.origin.x,
+				y: observation.boundingBox.origin.y
+			)
+		}
+	}
+	request.recognitionLevel = .accurate
+	request.usesLanguageCorrection = true
+
+	let handler = VNImageRequestHandler(cgImage: image, options: [:])
+	do {
+		try handler.perform([request])
+	} catch {
+		return []
+	}
+
+	return lines.sorted {
+		if abs($0.y - $1.y) > 0.02 {
+			return $0.y > $1.y
+		}
+		return $0.x < $1.x
+	}
+}
+
+func aiAppTitleCandidate(lines: [OcrLine], currentTitle: String, appName: String) -> String? {
+	guard isEmptyTitle(currentTitle) else {
+		return nil
+	}
+
+	for line in lines where line.y >= 0.6 && line.x >= 0.14 {
+		let text = cleanOcrText(line.text)
+		let normalized = normalizedOcrText(text)
+
+		if text.count < 4 ||
+			ignoredAiAppTitleOcrText.contains(normalized) ||
+			normalized == appName.lowercased() ||
+			normalized.hasPrefix("how can i help you") {
+			continue
+		}
+
+		return text
+	}
+
+	return nil
+}
 
 func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 	switch appId {
@@ -149,12 +281,34 @@ func getWindowInformation(window: [String: Any], windowOwnerPID: pid_t) -> [Stri
 		output["mode"] = windowDataArray[2]
 	}
 
+	if
+		enableAiAppTitleOcr,
+		!enableOpenWindowsList,
+		let bundleIdentifier = app.bundleIdentifier,
+		aiAppTitleOcrBundleIdentifiers.contains(bundleIdentifier),
+		let windowNumber = window[kCGWindowNumber as String] as? Int
+	{
+		if #available(macOS 10.15, *) {
+			let lines = recognizeTextInWindow(windowID: CGWindowID(windowNumber))
+			if !lines.isEmpty {
+				output["titleOcrText"] = Array(lines.prefix(80).map(\.text))
+
+				let currentTitle = output["title"] as? String ?? ""
+				if let title = aiAppTitleCandidate(lines: lines, currentTitle: currentTitle, appName: appName) {
+					output["title"] = title
+					output["titleSource"] = "ocr"
+				}
+			}
+		}
+	}
+
 	return output
 }
 
 let disableAccessibilityPermission = CommandLine.arguments.contains("--no-accessibility-permission")
 let disableScreenRecordingPermission = CommandLine.arguments.contains("--no-screen-recording-permission")
 let enableOpenWindowsList = CommandLine.arguments.contains("--open-windows-list")
+let enableAiAppTitleOcr = CommandLine.arguments.contains("--ai-app-title-ocr")
 
 // Show accessibility permission prompt if needed. Required to get the URL of the active tab in browsers.
 if !disableAccessibilityPermission {
@@ -166,7 +320,7 @@ if !disableAccessibilityPermission {
 
 // Show screen recording permission prompt if needed. Required to get the complete window title.
 if
-	!disableScreenRecordingPermission,
+	(!disableScreenRecordingPermission || enableAiAppTitleOcr),
 	!hasScreenRecordingPermission()
 {
 	print("get-windows requires the screen recording permission in “System Settings › Privacy & Security › Screen Recording”.")

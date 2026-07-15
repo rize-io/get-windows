@@ -16,6 +16,7 @@ expectType<Promise<Result | undefined>>(activeWindow());
 const result = activeWindowSync({
 	screenRecordingPermission: false,
 	accessibilityPermission: false,
+	aiAppTitleOcr: true,
 });
 
 expectType<Result | undefined>(result);
@@ -37,6 +38,8 @@ if (result) {
 		expectType<MacOSResult>(result);
 		expectType<string>(result.owner.bundleId);
 		expectType<string | undefined>(result.url);
+		expectType<string[] | undefined>(result.titleOcrText);
+		expectType<'ocr' | undefined>(result.titleSource);
 	} else if (result.platform === 'linux') {
 		expectType<LinuxResult>(result);
 		expectError(result.owner.bundleId);

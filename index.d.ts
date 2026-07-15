@@ -16,6 +16,15 @@ export type Options = {
 	@default true
 	*/
 	readonly screenRecordingPermission: boolean;
+
+	/**
+	Enable opt-in OCR for AI apps that expose only generic macOS window titles. _(macOS)_
+
+	This is limited to Claude and Codex bundle identifiers. It requires screen recording permission even when `screenRecordingPermission` is set to `false`.
+
+	@default false
+	*/
+	readonly aiAppTitleOcr?: boolean;
 };
 
 export type BaseOwner = {
@@ -87,6 +96,16 @@ export type MacOSResult = {
 	URL of the active browser tab if the active window is Safari (includes Technology Preview), Chrome (includes Beta, Dev, and Canary), Edge (includes Beta, Dev, and Canary), Brave (includes Beta and Nightly), Mighty, Ghost Browser, WaveBox, Sidekick, Opera (includes Beta, Developer, and GX), Vivaldi, Arc, Kagi, SigmaOS, Yandex, Comet, or Dia.
 	*/
 	url?: string;
+
+	/**
+	Text lines recognized from the active AI app window when `aiAppTitleOcr` is enabled. Only available for allowlisted AI apps.
+	*/
+	titleOcrText?: string[];
+
+	/**
+	Source of the returned title when it was replaced by OCR.
+	*/
+	titleSource?: 'ocr';
 } & BaseResult;
 
 export type LinuxResult = {
