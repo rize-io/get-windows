@@ -66,7 +66,23 @@ func getActiveBrowserTabURLAppleScriptCommand(_ appId: String) -> String? {
 			tell application "System Events"
 				tell (first process whose frontmost is true)
 					set window_url to ""
-					set window_name to value of attribute "AXTitle" of window 1
+					set window_name to ""
+					try
+						set window_name to value of attribute "AXTitle" of window 1
+					end try
+					if window_name is missing value or window_name is "" then
+						try
+							set window_name to name of window 1
+						end try
+					end if
+					if window_name is missing value or window_name is "" then
+						try
+							set window_name to value of attribute "AXTitle" of (value of attribute "AXFocusedWindow")
+						end try
+					end if
+					if window_name is missing value then
+						set window_name to ""
+					end if
 					set window_mode to "normal"
 					set window_data to window_url & "+++++" & window_name & "+++++" & window_mode
 				end tell
@@ -144,9 +160,17 @@ func getWindowInformation(window: [String: Any], windowOwnerPID: pid_t) -> [Stri
 		let windowData = runAppleScript(source: script)
 	{
 		let windowDataArray = windowData.components(separatedBy: "+++++")
-		output["url"] = windowDataArray[0]
-		output["title"] = windowDataArray[1]
-		output["mode"] = windowDataArray[2]
+		if windowDataArray.count >= 3 {
+			output["url"] = windowDataArray[0]
+
+			// Keep the window-list title if the accessibility script returns an empty one (e.g. some browsers between tabs).
+			let scriptTitle = windowDataArray[1]
+			if !scriptTitle.isEmpty {
+				output["title"] = scriptTitle
+			}
+
+			output["mode"] = windowDataArray[2]
+		}
 	}
 
 	return output
