@@ -1,25 +1,114 @@
 name: CI
+
 on:
   push:
-    branches-ignore:
-      - 'releases/**'
+    branches: [main]
   pull_request:
-    branches-ignore:
-      - 'releases/**'
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 22
+
 jobs:
-  test:
-    name: Node.js ${{ matrix.node-version }}
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --ignore-scripts
+      - run: npm run test-ci
+
+  build-macos:
+    name: Build macOS binary
     runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - run: npm install --ignore-scripts
+      - run: npm run build:macos
+      - name: Verify universal binary
+        run: |
+          set -euo pipefail
+          archs="$(lipo -archs main)"
+          echo "main: $archs"
+          case "$archs" in
+            *arm64*x86_64*|*x86_64*arm64*) ;;
+            *) echo 'main must contain both arm64 and x86_64 slices' >&2; exit 1 ;;
+          esac
+      - name: Smoke-run binary
+        run: |
+          set -euo pipefail
+          # No focused window on a headless runner, so only the JSON contract is checked.
+          ./main --no-accessibility-permission --no-screen-recording-permission --open-windows-list | node --input-type=module -e '
+            import {stdin} from "node:process";
+            let data = "";
+            for await (const chunk of stdin) data += chunk;
+            const parsed = JSON.parse(data);
+            if (parsed !== null && !Array.isArray(parsed)) {
+              throw new TypeError("Expected null or array, got " + typeof parsed);
+            }
+            console.log("open windows: " + (parsed === null ? "null" : parsed.length));
+          '
+
+  build-windows:
+    name: Build Windows addon (${{ matrix.target }})
+    runs-on: windows-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        node-version:
-          - 18
+        include:
+          - host: x64
+            target: x64
+          - host: x86
+            target: ia32
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
         with:
-          node-version: ${{ matrix.node-version }}
+          msbuild-architecture: ${{ matrix.host }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          architecture: ${{ matrix.host }}
       - run: npm install --ignore-scripts
-      - run: npm run build:macos
-      - run: npm run test-ci
+      - name: Build addon
+        shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/node-pre-gyp configure --target_arch="$TARGET_ARCH"
+          ./node_modules/.bin/node-pre-gyp build --target_arch="$TARGET_ARCH"
+      - name: Load addon and enumerate windows
+        shell: bash
+        run: |
+          set -euo pipefail
+          node -e '
+            const preGyp = require("@mapbox/node-pre-gyp");
+            const addon = require(preGyp.find(require.resolve("./package.json")));
+            for (const name of ["getActiveWindow", "getOpenWindows"]) {
+              if (typeof addon[name] !== "function") {
+                throw new TypeError("addon." + name + " is not a function");
+              }
+            }
+            const windows = addon.getOpenWindows();
+            if (!Array.isArray(windows)) {
+              throw new TypeError("getOpenWindows() returned " + typeof windows);
+            }
+            console.log("open windows: " + windows.length);
+          '
