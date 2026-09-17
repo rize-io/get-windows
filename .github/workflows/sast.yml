@@ -97,6 +97,7 @@ jobs:
           cppcheck --version | tee cppcheck-version.txt
           grep -qx "Cppcheck $CPPCHECK_VERSION" cppcheck-version.txt
           cppcheck --enable=warning,style,performance,portability \
+            --platform=win64 --library=windows \
             --language=c++ --std=c++17 --inline-suppr --error-exitcode=0 \
             --xml --output-file=cppcheck-report.xml Sources/windows/main.cc
 
