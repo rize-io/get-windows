@@ -1,0 +1,161 @@
+name: "[Security] SAST"
+
+# Findings are report-only and triaged from the uploaded artifacts.
+# A scanner that fails to run or produce a report fails the workflow.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  semgrep:
+    name: SAST — Semgrep (JS/TS, C++, Swift, workflows)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Semgrep
+        env:
+          SEMGREP_SEND_METRICS: 'off'
+        run: |
+          set -euo pipefail
+          pipx install semgrep==1.176.1
+          semgrep scan \
+            --config p/default --config p/security-audit --config p/swift \
+            --exclude node_modules --exclude .build --exclude lib/binding \
+            --metrics=off --json --output semgrep-report.json .
+
+      - name: Validate Semgrep report
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json
+          import sys
+          from collections import Counter
+          report = json.load(open('semgrep-report.json'))
+          results = report['results']
+          errors = report['errors']
+          scanned = set(report['paths']['scanned'])
+          required = {'index.js', 'lib/linux.js', 'lib/macos.js', 'lib/windows.js',
+                      'Sources/windows/main.cc', 'Sources/GetWindowsCLI/main.swift'}
+          print('## Semgrep findings')
+          print(f"Files scanned: {len(scanned)}")
+          print(f"Total: {len(results)}")
+          for sev, n in Counter(r['extra']['severity'] for r in results).most_common():
+              print(f"- {sev}: {n}")
+          fatal = [e for e in errors if e.get('level') == 'error']
+          warnings = [e for e in errors if e.get('level') != 'error']
+          if warnings:
+              print(f"\n### Semgrep warnings (partial parsing etc.): {len(warnings)}")
+              for path, n in Counter(str(e.get('path')) for e in warnings).most_common():
+                  print(f"- {path}: {n}")
+          if fatal:
+              print(f"\n### Semgrep errors: {len(fatal)}")
+              for e in fatal:
+                  print(f"- {e.get('path')}: {e.get('message')}")
+          missing = sorted(required - scanned)
+          if missing:
+              print(f"\nRequired files not scanned: {missing}")
+          if fatal or missing:
+              sys.exit('Semgrep did not complete cleanly; findings above are not the cause.')
+          EOF
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep-report.json
+          if-no-files-found: error
+          retention-days: 90
+
+  cppcheck:
+    name: SAST — Cppcheck (Windows addon)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      # Ubuntu 24.04 (noble) archive build, published 2024-04-04.
+      CPPCHECK_APT_VERSION: 2.13.0-2ubuntu3
+      CPPCHECK_VERSION: 2.13.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Run Cppcheck
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends "cppcheck=$CPPCHECK_APT_VERSION"
+          cppcheck --version | tee cppcheck-version.txt
+          grep -qx "Cppcheck $CPPCHECK_VERSION" cppcheck-version.txt
+          cppcheck --enable=warning,style,performance,portability \
+            --platform=win64 --library=windows \
+            --language=c++ --std=c++17 --inline-suppr --error-exitcode=0 \
+            --xml --output-file=cppcheck-report.xml Sources/windows/main.cc
+
+      - name: Validate Cppcheck report
+        run: |
+          set -euo pipefail
+          python3 - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import os
+          import sys
+          import xml.etree.ElementTree as ET
+          from collections import Counter
+          root = ET.parse('cppcheck-report.xml').getroot()
+          if root.tag != 'results' or root.find('errors') is None:
+              sys.exit('cppcheck-report.xml is not a Cppcheck results document')
+          version = root.find('cppcheck').get('version')
+          if version != os.environ['CPPCHECK_VERSION']:
+              sys.exit(f"report produced by Cppcheck {version}, expected {os.environ['CPPCHECK_VERSION']}")
+          errors = root.findall('./errors/error')
+          operational_ids = {'internalError', 'internalAstError', 'cppcheckError', 'syntaxError',
+                             'preprocessorErrorDirective', 'unknownMacro', 'toomanyconfigs'}
+          operational = [e for e in errors if e.get('id') in operational_ids]
+          findings = [e for e in errors if e.get('id') not in operational_ids]
+          print('## Cppcheck findings')
+          print(f"Total: {len(findings)}")
+          for sev, n in Counter(e.get('severity') for e in findings).most_common():
+              print(f"- {sev}: {n}")
+          if operational:
+              print(f"\n### Cppcheck processing errors: {len(operational)}")
+              for e in operational:
+                  print(f"- {e.get('id')}: {e.get('msg')}")
+              sys.exit('Cppcheck could not fully analyse the sources.')
+          EOF
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: cppcheck-report
+          path: cppcheck-report.xml
+          if-no-files-found: error
+          retention-days: 90
+
+  sast:
+    name: SOC2 SAST
+    if: always()
+    needs: [semgrep, cppcheck]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    env:
+      SEMGREP_RESULT: ${{ needs.semgrep.result }}
+      CPPCHECK_RESULT: ${{ needs.cppcheck.result }}
+    steps:
+      - name: Check scanner completion
+        run: |
+          set -euo pipefail
+          printf 'Semgrep: %s\nCppcheck: %s\n' "$SEMGREP_RESULT" "$CPPCHECK_RESULT"
+          if [ "$SEMGREP_RESULT" != 'success' ] || [ "$CPPCHECK_RESULT" != 'success' ]; then
+            echo 'Both SAST scanners must complete successfully.' >&2
+            exit 1
+          fi
+          echo 'SAST scans completed. Findings remain report-only.' >> "$GITHUB_STEP_SUMMARY"
