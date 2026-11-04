@@ -3,78 +3,80 @@ name: Build & publish binary node
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to build and upload binaries for, e.g. v9.3.0-beta.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 concurrency:
-  group: ${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  group: release-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22
+  TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    name: Build Windows prebuilt (${{ matrix.target }})
+    # windows-latest (Server 2025) ships VS 2026, which node-gyp 10 cannot detect.
+    runs-on: windows-2022
+    timeout-minutes: 30
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-        host:
-          - x64
-        target:
-          - x64
-        node:
-          - 18
         include:
-          - os: windows-latest
-            node: 18
-            host: x86
-            target: x86
-
-    name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
+          - host: x64
+            target: x64
+          - host: x86
+            target: ia32
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          msbuild-architecture: ${{ matrix.target }}
-
-      - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
-        uses: actions/setup-node@v3
+          ref: ${{ env.TAG }}
+      - uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
         with:
-          node-version: ${{ matrix.node }}
+          msbuild-architecture: ${{ matrix.host }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
           architecture: ${{ matrix.host }}
-      - name: Install dependencies
-        run: npm install --ignore-scripts
-
-      - name: Add env vars
+      - run: npm install --ignore-scripts
+      - name: Check the tag matches package.json
         shell: bash
         run: |
-          echo "V=1" >> $GITHUB_ENV
-          if [ "${{ matrix.target }}" = "x86" ]; then
-            echo "TARGET=ia32" >> $GITHUB_ENV
-          else
-            echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+          set -euo pipefail
+          version="v$(node -p 'require("./package.json").version')"
+          if [ "$version" != "$TAG" ]; then
+            echo "::error::package.json is $version but the release tag is $TAG"
+            exit 1
           fi
-      - name: Configure build
-        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }} --verbose
-
-      - name: Build binaries
-        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }} --verbose
-
-      - name: Package prebuilt binaries
-        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }} --verbose
-
-      # Run only for matrix.node 18
-      - name: Upload binaries to commit artifacts
-        uses: actions/upload-artifact@v3
-        if: matrix.node == 18
+      - name: Build and package addon
+        shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.target }}
+        run: |
+          set -euo pipefail
+          ./node_modules/.bin/node-pre-gyp configure --target_arch="$TARGET_ARCH"
+          ./node_modules/.bin/node-pre-gyp build --target_arch="$TARGET_ARCH"
+          ./node_modules/.bin/node-pre-gyp package --target_arch="$TARGET_ARCH"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: prebuilt-binaries
+          name: prebuilt-${{ matrix.target }}
           path: build/stage/*/*
           retention-days: 7
-
-      # Run only for matrix.node 18
-      - name: Upload binaries to GitHub Release
-        run: ./node_modules/.bin/node-pre-gyp-github publish
-        if: matrix.node == 18 && startsWith(github.ref, 'refs/tags/')
+      # node-pre-gyp install downloads {host}/{remote_path}/{package_name} from this release.
+      - name: Upload to the GitHub release
+        shell: bash
         env:
-          NODE_PRE_GYP_GITHUB_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" build/stage/*/*.tar.gz --clobber -R "$GITHUB_REPOSITORY"
