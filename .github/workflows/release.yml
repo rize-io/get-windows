@@ -3,78 +3,61 @@ name: Build & publish binary node
 on:
   release:
     types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 concurrency:
-  group: ${{ github.head_ref || github.run_id }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 22
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    # windows-latest (Server 2025) ships VS 2026, which node-gyp 10 cannot detect.
+    runs-on: windows-2022
+    timeout-minutes: 30
     strategy:
       fail-fast: false
+      # Serial so the two jobs never race to create the same release.
+      max-parallel: 1
       matrix:
-        os:
-          - windows-latest
-        host:
-          - x64
-        target:
-          - x64
-        node:
-          - 18
         include:
-          - os: windows-latest
-            node: 18
-            host: x86
-            target: x86
-
-    name: ${{ matrix.os }} (node=${{ matrix.node }}, host=${{ matrix.host }}, target=${{ matrix.target }})
+          - host: x64
+            target: x64
+          - host: x86
+            target: ia32
+    name: Windows (node=22, host=${{ matrix.host }}, target=${{ matrix.target }})
     steps:
-      - uses: actions/checkout@v3
-
-      - name: Add msbuild to PATH
-        uses: microsoft/setup-msbuild@v1.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: microsoft/setup-msbuild@30375c66a4eea26614e0d39710365f22f8b0af57 # v3
         with:
-          msbuild-architecture: ${{ matrix.target }}
-
-      - name: Setup node (node=${{ matrix.node }}, host=${{ matrix.host }})
-        uses: actions/setup-node@v3
+          msbuild-architecture: ${{ matrix.host }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ env.NODE_VERSION }}
           architecture: ${{ matrix.host }}
-      - name: Install dependencies
-        run: npm install --ignore-scripts
-
-      - name: Add env vars
+      - run: npm install --ignore-scripts
+      - name: Build and package binaries
         shell: bash
+        env:
+          TARGET_ARCH: ${{ matrix.target }}
+          V: 1
         run: |
-          echo "V=1" >> $GITHUB_ENV
-          if [ "${{ matrix.target }}" = "x86" ]; then
-            echo "TARGET=ia32" >> $GITHUB_ENV
-          else
-            echo "TARGET=${{ matrix.target }}" >> $GITHUB_ENV
-          fi
-      - name: Configure build
-        run: ./node_modules/.bin/node-pre-gyp configure --target_arch=${{ env.TARGET }} --verbose
-
-      - name: Build binaries
-        run: ./node_modules/.bin/node-pre-gyp build --target_arch=${{ env.TARGET }} --verbose
-
-      - name: Package prebuilt binaries
-        run: ./node_modules/.bin/node-pre-gyp package --target_arch=${{ env.TARGET }} --verbose
-
-      # Run only for matrix.node 18
-      - name: Upload binaries to commit artifacts
-        uses: actions/upload-artifact@v3
-        if: matrix.node == 18
+          set -euo pipefail
+          ./node_modules/.bin/node-pre-gyp configure --target_arch="$TARGET_ARCH" --verbose
+          ./node_modules/.bin/node-pre-gyp build --target_arch="$TARGET_ARCH" --verbose
+          ./node_modules/.bin/node-pre-gyp package --target_arch="$TARGET_ARCH" --verbose
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: prebuilt-binaries
+          name: prebuilt-binaries-${{ matrix.target }}
           path: build/stage/*/*
           retention-days: 7
-
-      # Run only for matrix.node 18
+      # Attaches to the release tagged v<package.json version>, creating it if missing.
       - name: Upload binaries to GitHub Release
-        run: ./node_modules/.bin/node-pre-gyp-github publish
-        if: matrix.node == 18 && startsWith(github.ref, 'refs/tags/')
+        run: ./node_modules/.bin/node-pre-gyp-github publish --release
         env:
           NODE_PRE_GYP_GITHUB_TOKEN: ${{ github.token }}

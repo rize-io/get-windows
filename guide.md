@@ -17,10 +17,9 @@
 15. Update the npm version `npm version prerelease`.
 16. Push your changes to the `main` branch.
 17. Create a release on GitHub with the same prerelease version and set it to the latest release. You might have to uncheck the prerelease option.
-18. This will trigger a GitHub Action that will build Node 18 binaries and attach them to the release. You see the following assets:
-    1. napi-3-win32-unknown-ia32.tar.gz
-    2. napi-3-win32-unknown-x64.tar.gz
-    3. napi-6-win32-unknown-ia32.tar.gz
-    4. napi-6-win32-unknown-x64.tar.gz
+18. This triggers the "Build & publish binary node" GitHub Action, which builds the Windows addon on Node 22 (windows-2022) and attaches these assets to the release tagged `v<package.json version>`:
+    1. napi-9-win32-unknown-ia32.tar.gz
+    2. napi-9-win32-unknown-x64.tar.gz
+    If a release is missing its assets, run the workflow manually from the Actions tab (Run workflow on `main`); it creates the release if it does not exist.
 19. I'm not entirely sure why the original library isn't also uploading the macOS binaries.
 20. Run `npm publish` to publish the package to npm.
